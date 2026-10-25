@@ -1,0 +1,120 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Mock harness test fixture (not an Atlassian spec)",
+    "version": "1.0"
+  },
+  "servers": [{ "url": "http://{baseurl}/rest" }],
+  "paths": {
+    "/api/1/thing/{id}": {
+      "get": {
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "A thing",
+            "content": { "application/json": { "example": { "id": "42", "name": "templated" } } }
+          },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/api/1/thing/special": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Literal path beats the template",
+            "content": { "application/json": { "example": { "special": true } } }
+          }
+        }
+      }
+    },
+    "/api/1/widgets": {
+      "parameters": [{ "$ref": "#/components/parameters/Query" }],
+      "get": {
+        "responses": {
+          "200": {
+            "description": "A page of widgets",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WidgetPage" } } }
+          }
+        }
+      }
+    },
+    "/api/1/examples": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Named examples",
+            "content": {
+              "application/json": {
+                "examples": { "first": { "$ref": "#/components/examples/Named" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/1/stringly": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Example stored as a JSON string",
+            "content": { "application/json": { "example": "{\"decoded\": true}" } }
+          }
+        }
+      }
+    },
+    "/api/1/files/{path}": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Raw file",
+            "content": { "text/plain": { "example": "hello\n" } }
+          }
+        }
+      }
+    },
+    "/api/1/empty": {
+      "get": { "responses": { "204": { "description": "Nothing" } } }
+    },
+    "/api/1/write-only": {
+      "post": { "responses": { "201": { "description": "Not mocked: GET only" } } }
+    }
+  },
+  "components": {
+    "parameters": {
+      "Query": { "name": "q", "in": "query", "required": true, "schema": { "type": "string" } }
+    },
+    "examples": {
+      "Named": { "value": { "named": "example" } }
+    },
+    "schemas": {
+      "WidgetPage": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Page" },
+          {
+            "type": "object",
+            "properties": {
+              "values": { "type": "array", "items": { "$ref": "#/components/schemas/Widget" } }
+            }
+          }
+        ]
+      },
+      "Page": {
+        "type": "object",
+        "properties": {
+          "isLastPage": { "type": "boolean" },
+          "start": { "type": "integer" }
+        }
+      },
+      "Widget": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "kind": { "type": "string", "enum": ["GEAR", "SPRING"] },
+          "created": { "type": "string", "format": "date-time" },
+          "parent": { "$ref": "#/components/schemas/Widget" }
+        }
+      }
+    }
+  }
+}

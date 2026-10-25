@@ -1,0 +1,36 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Mock harness test fixture (not an Atlassian spec)",
+    "version": "1.0"
+  },
+  "basePath": "/rest/api/latest",
+  "paths": {
+    "/info": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Server info",
+            "examples": { "application/json": { "version": "9.0.0" } }
+          }
+        }
+      }
+    },
+    "/plan/{key}": {
+      "get": {
+        "responses": {
+          "200": { "description": "A plan", "schema": { "$ref": "#/definitions/Plan" } }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "Plan": {
+      "type": "object",
+      "properties": {
+        "key": { "type": "string" },
+        "enabled": { "type": "boolean" }
+      }
+    }
+  }
+}
