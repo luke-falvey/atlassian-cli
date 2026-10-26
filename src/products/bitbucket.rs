@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
 
 use super::RawArgs;
-use crate::request::{ApiRequest, PageArgs, PageStyle, path_segs, seg};
+use crate::request::{ApiRequest, Guard, PageArgs, PageStyle, path_segs, seg};
 
 const API: &str = "/rest/api/latest";
 
@@ -327,7 +327,7 @@ fn with_path(base: &str, path: Option<&String>) -> String {
 impl BitbucketCommand {
     pub fn to_request(&self) -> Result<ApiRequest> {
         use PageStyle::Bitbucket as B;
-        Ok(match self {
+        let req = match self {
             BitbucketCommand::ApplicationProperties => {
                 ApiRequest::get(p("/application-properties"))
             }
@@ -471,7 +471,46 @@ impl BitbucketCommand {
                     .paged(B, page)
             }
             BitbucketCommand::Raw(raw) => return raw.to_request(),
-        })
+        };
+        Ok(req.guard(self.guard()))
+    }
+
+    /// What the command touches, for the scope check.
+    fn guard(&self) -> Guard {
+        use BitbucketCommand as C;
+        let repo = |r: &RepoRef| Guard::BitbucketRepo {
+            project: r.project.clone(),
+            repo: r.repo.clone(),
+        };
+        match self {
+            C::ApplicationProperties => Guard::Open,
+            C::Project(ProjectCmd::List { .. }) => Guard::BitbucketProjectList,
+            C::Project(ProjectCmd::Get { key }) => Guard::BitbucketProject(key.clone()),
+            C::Repo(RepoCmd::List { .. }) => Guard::BitbucketRepoList,
+            C::Repo(RepoCmd::Get { repo: r }) => repo(r),
+            C::Branch(BranchCmd::List { repo: r, .. } | BranchCmd::Default { repo: r }) => repo(r),
+            C::Tag(TagCmd::List { repo: r, .. }) => repo(r),
+            C::Commit(
+                CommitCmd::List { repo: r, .. }
+                | CommitCmd::Get { repo: r, .. }
+                | CommitCmd::Changes { repo: r, .. },
+            ) => repo(r),
+            C::PullRequest(
+                PullRequestCmd::List { repo: r, .. }
+                | PullRequestCmd::Get { repo: r, .. }
+                | PullRequestCmd::Activities { repo: r, .. }
+                | PullRequestCmd::Changes { repo: r, .. }
+                | PullRequestCmd::Commits { repo: r, .. },
+            ) => repo(r),
+            C::File(
+                FileCmd::List { repo: r, .. }
+                | FileCmd::Browse { repo: r, .. }
+                | FileCmd::Content { repo: r, .. },
+            ) => repo(r),
+            // Listing users and groups spans the whole instance.
+            C::User(_) | C::Group(_) => Guard::Instance,
+            C::Raw(_) => Guard::Raw,
+        }
     }
 }
 

@@ -1,6 +1,8 @@
 //! A product-independent description of a single read-only REST call.
 
 use clap::Args;
+
+pub use crate::scope::Guard;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
 /// Characters that are percent-encoded inside a single path segment.
@@ -82,6 +84,8 @@ pub struct ApiRequest {
     pub path: String,
     pub query: Vec<(String, String)>,
     pub paging: Option<Paging>,
+    /// What the request touches, checked against the configured scope.
+    pub guard: Guard,
 }
 
 impl ApiRequest {
@@ -90,7 +94,14 @@ impl ApiRequest {
             path: path.into(),
             query: Vec::new(),
             paging: None,
+            guard: Guard::Open,
         }
+    }
+
+    /// Say what the request touches, for the scope check.
+    pub fn guard(mut self, guard: Guard) -> Self {
+        self.guard = guard;
+        self
     }
 
     /// Add a query parameter.

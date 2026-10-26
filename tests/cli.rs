@@ -253,7 +253,7 @@ async fn jira_all_follows_start_at_and_total() {
     ] {
         Mock::given(method("GET"))
             .and(path("/rest/api/2/search"))
-            .and(query_param("jql", "project = A"))
+            .and(query_param("jql", r#"project in ("A") ORDER BY updated DESC"#))
             .and(query_param("startAt", start))
             .and(query_param("maxResults", "2"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -269,9 +269,10 @@ async fn jira_all_follows_start_at_and_total() {
         &config,
         &[
             "jira",
-            "search",
-            "--jql",
-            "project = A",
+            "issue",
+            "list",
+            "--project",
+            "A",
             "--limit",
             "2",
             "--all",

@@ -19,7 +19,7 @@ async fn agile_commands_match_spec() {
             &["agile", "board", "get", "1"],
             &["agile", "board", "configuration", "1"],
             &["agile", "board", "sprints", "1", "--state", "active"],
-            &["agile", "board", "issues", "1", "--jql", "status = Open"],
+            &["agile", "board", "issues", "1", "--fields", "summary"],
             &["agile", "board", "backlog", "1"],
             &["agile", "board", "epics", "1", "--done", "false"],
             &["agile", "sprint", "get", "2"],

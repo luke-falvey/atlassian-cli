@@ -64,7 +64,6 @@ async fn confluence_commands_match_spec() {
                 "--expand",
                 "previousVersion",
             ],
-            &["confluence", "search", "--cql", "type = page"],
             &["confluence", "user", "current"],
             &["confluence", "user", "get", "--username", "alice"],
             &["confluence", "group", "list"],

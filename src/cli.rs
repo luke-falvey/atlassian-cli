@@ -70,6 +70,16 @@ impl Product {
         }
     }
 
+    /// The product's command name, for the request log.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Product::Jira(_) => "jira",
+            Product::Agile(_) => "agile",
+            Product::Confluence(_) => "confluence",
+            Product::Bitbucket(_) => "bitbucket",
+        }
+    }
+
     pub fn to_request(&self) -> Result<ApiRequest> {
         match self {
             Product::Jira(c) => c.to_request(),

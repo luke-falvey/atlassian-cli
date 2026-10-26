@@ -499,9 +499,20 @@ impl TestConfig {
         Self::with(&credentials_toml())
     }
 
+    /// A config file with `contents`. Unless `contents` has its own `[log]`
+    /// section, requests are logged to `log_path()` inside the temp dir, so
+    /// tests never write to the real home directory.
     pub fn with(contents: &str) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("atlassian.toml");
+        let mut contents = contents.to_string();
+        if !contents.contains("[log]") {
+            let log = dir.path().join("requests.log");
+            contents.push_str(&format!(
+                "\n[log]\npath = {}\n",
+                toml_str(&log.display().to_string())
+            ));
+        }
         std::fs::write(&path, contents).unwrap();
         #[cfg(unix)]
         {
@@ -509,6 +520,20 @@ impl TestConfig {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         }
         Self { _dir: dir, path }
+    }
+
+    /// Where this config logs requests (unless the contents set `[log]`).
+    pub fn log_path(&self) -> PathBuf {
+        self.path.with_file_name("requests.log")
+    }
+
+    /// The request log entries written so far.
+    pub fn log_entries(&self) -> Vec<Value> {
+        std::fs::read_to_string(self.log_path())
+            .unwrap_or_default()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
     }
 }
 

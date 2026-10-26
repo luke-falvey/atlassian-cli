@@ -89,14 +89,73 @@ Flags override the file for one run:
 | `--base-url <URL>` | the section's `base_url` |
 | `--ca-cert <PATH>` | the section's `ca_cert` |
 
+### Limiting what the CLI can read (`[scope]`)
+
+Add a `[scope]` section to limit the CLI to the projects, spaces and
+repositories a task needs. This matters most when an LLM agent drives the CLI.
+
+```toml
+[scope]
+jira_projects = ["ABC", "OPS"]           # also limits `agile`
+confluence_spaces = ["DEV"]
+bitbucket_repos = ["PROJ/api", "WEB/*"]  # PROJECT/repo, or PROJECT/* for all its repos
+max_results = 1000                       # most items `--all` returns (default 1000)
+allow_raw = false                        # `raw` can reach any endpoint (default false)
+```
+
+With a scope set:
+
+- **Direct reads are checked before anything is sent.** This covers issue
+  keys, project keys, space keys and `PROJECT/repo` arguments.
+- **Ids that don't show their project are looked up first:**
+  - A Confluence page id: its space is fetched and checked.
+  - A board: the projects it shows must all be allowed.
+  - A sprint: checked through its board.
+  - An epic id: its key is fetched and checked.
+- **Lists are limited and filtered.**
+  - `jira issue list` only queries the allowed projects.
+  - `confluence space list` only asks for the allowed spaces.
+  - `agile board list` and `confluence content list` need an allowed
+    `--project` or `--space`.
+  - Any out-of-scope items in a response are dropped.
+- **Commands that read across the whole instance are refused.** That means
+  user and group lookups, Jira filters and dashboards, and `raw` (unless
+  `allow_raw = true`).
+- **A product with no list in `[scope]` is blocked entirely.** Numeric Jira
+  issue ids are refused too; use the key.
+
+Refused commands fail with `blocked by scope: ...` and send nothing. Without a
+`[scope]` section, nothing is restricted.
+
+This limits what the CLI will ask for. It doesn't replace server-side
+permissions: for agents, also use an account that can only see the allowed
+projects, and don't let the agent edit `~/.atlassian.toml` or pass `--config`.
+
+### Request log (`[log]`)
+
+Every request is appended as one JSON line to
+`~/.local/state/atlassian/requests.log`. Each line records:
+- time, product, URL with its query, HTTP status and item count
+- for refused commands: the command line and the reason
+
+Credentials are never logged.
+
+```toml
+[log]
+path = "~/atlassian-requests.log"   # optional; `~/` is your home directory
+enabled = true                      # set false to turn logging off
+```
+
+If the log can't be written, the command fails instead of running unlogged.
+
 ## Examples
 
 ```sh
 atlassian jira myself
 atlassian jira issue get ABC-123 --fields summary,status --expand changelog
-atlassian jira search --jql 'project = ABC AND resolution = Unresolved' --all
+atlassian jira issue list --project ABC --open --assignee me --all
 atlassian agile board sprints 42 --state active
-atlassian confluence search --cql 'space = DEV AND type = page' --limit 10
+atlassian confluence content list --space DEV --type page --limit 10
 atlassian confluence content get 123456 --expand body.storage,version
 atlassian bitbucket pull-request list PROJ my-repo --state OPEN
 atlassian bitbucket file content PROJ my-repo README.md --at refs/heads/main
@@ -124,9 +183,9 @@ page and prints the items as one JSON array.
 
 | Product | Resources |
 |---------|-----------|
-| `jira` | `server-info`, `myself`, `issue` (get, comments, worklogs, transitions, watchers, votes, remote-links), `search`, `project` (list, get, components, versions, statuses, roles), `user` (get, search), `group` (members, search), `field`, `issue-type`, `issue-link-type`, `priority`, `status`, `resolution`, `filter` (get, favourite), `dashboard`, `raw` |
+| `jira` | `server-info`, `myself`, `issue` (list, get, comments, worklogs, transitions, watchers, votes, remote-links), `project` (list, get, components, versions, statuses, roles), `user` (get, search), `group` (members, search), `field`, `issue-type`, `issue-link-type`, `priority`, `status`, `resolution`, `filter` (get, favourite), `dashboard`, `raw` |
 | `agile` | `board` (list, get, configuration, sprints, issues, backlog, epics), `sprint` (get, issues), `epic` (get, issues), `raw` |
-| `confluence` | `space` (list, get, content), `content` (list, get, children, descendants, attachments, comments, labels, history), `search`, `user` (current, get), `group` (list, members), `raw` |
+| `confluence` | `space` (list, get, content), `content` (list, get, children, descendants, attachments, comments, labels, history), `user` (current, get), `group` (list, members), `raw` |
 | `bitbucket` | `application-properties`, `project`, `repo`, `branch` (list, default), `tag`, `commit` (list, get, changes), `pull-request` (list, get, activities, changes, commits), `file` (list, browse, content), `user`, `group`, `raw` |
 
 ## Using with Claude and other LLM agents

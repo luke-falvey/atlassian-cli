@@ -5,8 +5,10 @@
 pub mod cli;
 pub mod client;
 pub mod config;
+pub mod log;
 pub mod products;
 pub mod request;
+pub mod scope;
 
 use anyhow::{Context, Result};
 
@@ -30,15 +32,41 @@ pub fn resolve_settings(cli: &Cli) -> Result<Resolved> {
 }
 
 /// Run a parsed command and return what it fetched.
+///
+/// The command is checked against the configured scope before anything is
+/// sent; refused commands are logged and fail. List results are filtered
+/// down to the scope afterwards.
 pub async fn execute(cli: &Cli) -> Result<Output> {
-    let request = cli.to_request()?;
+    let mut request = cli.to_request()?;
     let settings = resolve_settings(cli)?;
+    let log = settings
+        .log
+        .clone()
+        .map(|path| log::RequestLog::new(path, cli.product.name()));
     let client = Client::new(
         &settings.base_url,
         settings.credentials,
         settings.ca_cert.as_deref(),
-    )?;
-    client.execute(&request).await
+    )?
+    .with_log(log.clone())
+    .with_max_items(settings.scope.max_results());
+
+    let filter = match scope::authorize(&mut request, &settings.scope, &client).await {
+        Ok(filter) => filter,
+        Err(err) => {
+            if let Some(log) = &log {
+                log.denied(&command_line(), &format!("{err:#}"))?;
+            }
+            return Err(err);
+        }
+    };
+    let output = client.execute(&request).await?;
+    Ok(filter.apply(output, &settings.scope))
+}
+
+/// The command as typed, for the request log.
+fn command_line() -> String {
+    std::env::args().collect::<Vec<_>>().join(" ")
 }
 
 /// Format output for printing.
