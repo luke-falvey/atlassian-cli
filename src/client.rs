@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::Value;
 
-use crate::credentials::Credentials;
+use crate::config::Credentials;
 use crate::request::{ApiRequest, PageStyle};
 
 /// What a command printed: parsed JSON or plain text (e.g. raw file content).

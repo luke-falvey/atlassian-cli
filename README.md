@@ -24,33 +24,53 @@ This first version only **reads**. The HTTP client has no method other than
 cargo install --path .
 ```
 
-## Authentication
+## Configuration
 
-Only HTTP Basic auth is supported. Put your username and password on one line
-in `~/.atlassian_credentials`:
+Server URLs and credentials live in `~/.atlassian.toml`, with one section per
+product:
 
-```sh
-printf '%s:%s\n' 'alice' 'my-password' > ~/.atlassian_credentials
-chmod 600 ~/.atlassian_credentials
+```toml
+# Default Basic-auth credentials, used by every product without its own.
+username = "alice"
+password = "my-password"
+
+[jira]          # also used by `agile` (Jira Software)
+base_url = "https://jira.example.com"
+
+[confluence]
+base_url = "https://wiki.example.com/confluence"   # include any context path
+username = "svc-confluence"                        # optional per-product override
+password = "other-password"
+
+[bitbucket]
+base_url = "https://bitbucket.example.com"
+ca_cert = "/etc/ssl/corp-ca.pem"                   # optional extra CA certificate
+
+[bamboo]
+base_url = "https://bamboo.example.com"
 ```
 
-Everything after the first `:` is the password, so passwords may contain `:`.
-The CLI warns if the file can be read by other users. Use
-`--credentials-file <PATH>` to read a different file.
-
-## Server URLs
-
-Pass `--base-url`, or set one environment variable per product:
-
 ```sh
-export JIRA_URL=https://jira.example.com          # also used by `agile`
-export CONFLUENCE_URL=https://confluence.example.com
-export BITBUCKET_URL=https://bitbucket.example.com
-export BAMBOO_URL=https://bamboo.example.com
+chmod 600 ~/.atlassian.toml
 ```
 
-Include any context path, e.g. `https://example.com/jira`. For a server with a
-private CA, the OS trust store is used; you can also pass `--ca-cert ca.pem`.
+- **Sections:** each product reads its own section: `[jira]`, `[confluence]`,
+  `[bitbucket]` or `[bamboo]`. `agile` uses `[jira]`, because Jira serves the
+  Jira Software API.
+- **Authentication:** only HTTP Basic auth is supported. A section's
+  `username`/`password` override the top-level ones.
+- **Unknown keys:** a misspelled key is an error, not silently ignored.
+- **Permissions:** the CLI warns if other users can read the file.
+- **Certificates:** the OS trust store is used for TLS. `ca_cert` adds one
+  more PEM certificate for that product.
+
+Flags override the file for one run:
+
+| Flag | Overrides |
+|------|-----------|
+| `--config <PATH>` | the file location (default `~/.atlassian.toml`) |
+| `--base-url <URL>` | the section's `base_url` |
+| `--ca-cert <PATH>` | the section's `ca_cert` |
 
 ## Examples
 

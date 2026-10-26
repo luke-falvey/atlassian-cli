@@ -27,10 +27,10 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 use atlassian_cli::{Cli, Output};
 use clap::Parser;
 
-/// Username written to the test credentials file.
+/// Username written to the test config file.
 pub const USER: &str = "test-user";
-/// Password written to the test credentials file. Contains `:` on purpose.
-pub const PASS: &str = "p@ss:word";
+/// Password written to the test config file. Contains `:` and `"` on purpose.
+pub const PASS: &str = "p@ss:wo\"rd";
 
 /// The `Authorization` header value the mock expects.
 pub fn expected_auth() -> String {
@@ -472,20 +472,36 @@ pub fn synthesize(spec: &Value, schema: &Value, refs: &mut Vec<String>, depth: u
     }
 }
 
-/// A temporary credentials file for the test user.
-pub struct Creds {
+/// Quote a string as a TOML basic string.
+pub fn toml_str(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// The top-level `username`/`password` lines for the test user.
+pub fn credentials_toml() -> String {
+    format!(
+        "username = {}\npassword = {}\n",
+        toml_str(USER),
+        toml_str(PASS)
+    )
+}
+
+/// A temporary `~/.atlassian.toml`-style config file.
+pub struct TestConfig {
     _dir: TempDir,
     pub path: PathBuf,
 }
 
-impl Creds {
+impl TestConfig {
+    /// A config holding only the test user's credentials. Tests pass the
+    /// mock's URL with `--base-url`.
     pub fn new() -> Self {
-        Self::with(&format!("{USER}:{PASS}\n"))
+        Self::with(&credentials_toml())
     }
 
     pub fn with(contents: &str) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("atlassian_credentials");
+        let path = dir.path().join("atlassian.toml");
         std::fs::write(&path, contents).unwrap();
         #[cfg(unix)]
         {
@@ -497,13 +513,13 @@ impl Creds {
 }
 
 /// Parse `args` (without the program name) and run them against `base_url`.
-pub async fn run_cli(base_url: &str, creds: &Creds, args: &[&str]) -> anyhow::Result<Output> {
+pub async fn run_cli(base_url: &str, config: &TestConfig, args: &[&str]) -> anyhow::Result<Output> {
     let mut argv = vec![
         "atlassian".to_string(),
         "--base-url".to_string(),
         base_url.to_string(),
-        "--credentials-file".to_string(),
-        creds.path.display().to_string(),
+        "--config".to_string(),
+        config.path.display().to_string(),
     ];
     argv.extend(args.iter().map(|s| s.to_string()));
     let cli = Cli::try_parse_from(argv)?;
@@ -515,7 +531,7 @@ pub async fn run_cli(base_url: &str, creds: &Creds, args: &[&str]) -> anyhow::Re
 /// are reported together.
 pub async fn check_commands_against_spec(spec_file: &str, invocations: &[&[&str]]) {
     let mock = SpecMock::start(&spec_path(spec_file)).await;
-    let creds = Creds::new();
+    let config = TestConfig::new();
     let mut failures = Vec::new();
     for args in invocations {
         let cli = Cli::try_parse_from(std::iter::once(&"atlassian").chain(args.iter()))
@@ -537,7 +553,7 @@ pub async fn check_commands_against_spec(spec_file: &str, invocations: &[&[&str]
             ));
             continue;
         }
-        match run_cli(&mock.base_url(), &creds, args).await {
+        match run_cli(&mock.base_url(), &config, args).await {
             Ok(out) if out == op.expected_output() => {}
             Ok(out) => failures.push(format!(
                 "`{}`: output does not match the {} example: {out:?}",

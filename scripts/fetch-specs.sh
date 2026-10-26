@@ -3,8 +3,10 @@
 #
 # The URLs below are the best-known locations on dac-static.atlassian.com and
 # are confirmed for jira, confluence and bitbucket; the bamboo one is a guess.
-# The jira-9.12.json spec is generated separately; see specs/README.md. If one fails, find the "Download OpenAPI spec" link on the
-# product's REST API page on developer.atlassian.com and pass it in:
+# specs/jira-9.12.json is generated separately; see specs/README.md.
+#
+# If one fails, find the "Download OpenAPI spec" link on the product's REST API
+# page on developer.atlassian.com and pass it in:
 #
 #   BITBUCKET_SPEC_URL=https://.../9.6.swagger.v3.json scripts/fetch-specs.sh
 #

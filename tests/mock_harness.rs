@@ -5,19 +5,19 @@ mod support;
 
 use atlassian_cli::Output;
 use serde_json::json;
-use support::{Creds, SpecMock, fixture_path, run_cli};
+use support::{SpecMock, TestConfig, fixture_path, run_cli};
 
 async fn sample() -> SpecMock {
     SpecMock::start(&fixture_path("openapi3-sample.json")).await
 }
 
 async fn get(mock: &SpecMock, path: &str, query: &[&str]) -> anyhow::Result<Output> {
-    let creds = Creds::new();
+    let config = TestConfig::new();
     let mut args = vec!["jira", "raw", path];
     for q in query {
         args.extend(["-q", q]);
     }
-    run_cli(&mock.uri(), &creds, &args).await
+    run_cli(&mock.uri(), &config, &args).await
 }
 
 #[tokio::test]
@@ -110,10 +110,14 @@ async fn unknown_paths_and_non_get_operations_are_404() {
 #[tokio::test]
 async fn wrong_credentials_are_401() {
     let mock = sample().await;
-    let creds = Creds::with("test-user:wrong\n");
-    let err = run_cli(&mock.uri(), &creds, &["jira", "raw", "/rest/api/1/thing/1"])
-        .await
-        .unwrap_err();
+    let config = TestConfig::with("username = \"test-user\"\npassword = \"wrong\"\n");
+    let err = run_cli(
+        &mock.uri(),
+        &config,
+        &["jira", "raw", "/rest/api/1/thing/1"],
+    )
+    .await
+    .unwrap_err();
     let msg = format!("{err:#}");
     assert!(msg.contains("401"), "{msg}");
     assert!(msg.contains("not authenticated"), "{msg}");
@@ -122,14 +126,18 @@ async fn wrong_credentials_are_401() {
 #[tokio::test]
 async fn swagger2_specs_are_supported() {
     let mock = SpecMock::start(&fixture_path("swagger2-sample.json")).await;
-    let creds = Creds::new();
-    let out = run_cli(&mock.uri(), &creds, &["bamboo", "info"])
+    let config = TestConfig::new();
+    let out = run_cli(&mock.uri(), &config, &["bamboo", "info"])
         .await
         .unwrap();
     assert_eq!(out, Output::Json(json!({"version": "9.0.0"})));
-    let out = run_cli(&mock.uri(), &creds, &["bamboo", "plan", "get", "PROJ-PLAN"])
-        .await
-        .unwrap();
+    let out = run_cli(
+        &mock.uri(),
+        &config,
+        &["bamboo", "plan", "get", "PROJ-PLAN"],
+    )
+    .await
+    .unwrap();
     assert_eq!(out, Output::Json(json!({"key": "string", "enabled": true})));
 }
 

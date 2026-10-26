@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+use crate::config::Section;
 use crate::products::agile::AgileCommand;
 use crate::products::bamboo::BambooCommand;
 use crate::products::bitbucket::BitbucketCommand;
@@ -14,21 +15,23 @@ use crate::request::ApiRequest;
 
 /// Read-only command line client for Atlassian Data Center products.
 ///
-/// Authenticates with HTTP Basic auth using `username:password` from
-/// ~/.atlassian_credentials.
+/// Server URLs and Basic-auth credentials are read from ~/.atlassian.toml,
+/// with one section per product: [jira] (also used by agile), [confluence],
+/// [bitbucket] and [bamboo].
 #[derive(Debug, Parser)]
 #[command(name = "atlassian", version)]
 pub struct Cli {
-    /// Base URL of the product, e.g. https://jira.example.com. Defaults to
-    /// JIRA_URL, CONFLUENCE_URL, BITBUCKET_URL or BAMBOO_URL.
+    /// Base URL of the product, e.g. https://jira.example.com. Overrides
+    /// `base_url` in the product's config section.
     #[arg(long, global = true, value_name = "URL", help_heading = GLOBAL)]
     pub base_url: Option<String>,
 
-    /// Credentials file holding `username:password` [default: ~/.atlassian_credentials].
+    /// Config file [default: ~/.atlassian.toml].
     #[arg(long, global = true, value_name = "PATH", help_heading = GLOBAL)]
-    pub credentials_file: Option<PathBuf>,
+    pub config: Option<PathBuf>,
 
     /// Extra PEM CA certificate to trust, for servers with a private CA.
+    /// Overrides `ca_cert` in the product's config section.
     #[arg(long, global = true, value_name = "PATH", help_heading = GLOBAL)]
     pub ca_cert: Option<PathBuf>,
 
@@ -62,13 +65,13 @@ pub enum Product {
 }
 
 impl Product {
-    /// Environment variable that holds this product's base URL.
-    pub fn url_env_var(&self) -> &'static str {
+    /// The config section that holds this product's settings.
+    pub fn section(&self) -> Section {
         match self {
-            Product::Jira(_) | Product::Agile(_) => "JIRA_URL",
-            Product::Confluence(_) => "CONFLUENCE_URL",
-            Product::Bitbucket(_) => "BITBUCKET_URL",
-            Product::Bamboo(_) => "BAMBOO_URL",
+            Product::Jira(_) | Product::Agile(_) => Section::Jira,
+            Product::Confluence(_) => Section::Confluence,
+            Product::Bitbucket(_) => Section::Bitbucket,
+            Product::Bamboo(_) => Section::Bamboo,
         }
     }
 
@@ -100,11 +103,11 @@ mod tests {
     }
 
     #[test]
-    fn url_env_vars() {
+    fn config_sections() {
         let cli = Cli::try_parse_from(["atlassian", "agile", "board", "get", "1"]).unwrap();
-        assert_eq!(cli.product.url_env_var(), "JIRA_URL");
+        assert_eq!(cli.product.section(), Section::Jira);
         let cli = Cli::try_parse_from(["atlassian", "bamboo", "info"]).unwrap();
-        assert_eq!(cli.product.url_env_var(), "BAMBOO_URL");
+        assert_eq!(cli.product.section(), Section::Bamboo);
     }
 
     #[test]
@@ -115,13 +118,13 @@ mod tests {
             "myself",
             "--base-url",
             "https://jira.example.com",
-            "--credentials-file",
-            "/tmp/c",
+            "--config",
+            "/tmp/c.toml",
             "--compact",
         ])
         .unwrap();
         assert_eq!(cli.base_url.as_deref(), Some("https://jira.example.com"));
-        assert_eq!(cli.credentials_file, Some(PathBuf::from("/tmp/c")));
+        assert_eq!(cli.config, Some(PathBuf::from("/tmp/c.toml")));
         assert!(cli.compact);
     }
 }

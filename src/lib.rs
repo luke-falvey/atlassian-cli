@@ -4,38 +4,40 @@
 
 pub mod cli;
 pub mod client;
-pub mod credentials;
+pub mod config;
 pub mod products;
 pub mod request;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 
 pub use cli::Cli;
 pub use client::{Client, Output};
-use credentials::Credentials;
+use config::{Config, Resolved};
 
-/// Resolve the base URL: `--base-url` first, then the product's env variable.
-pub fn base_url(cli: &Cli) -> Result<String> {
-    if let Some(url) = &cli.base_url {
-        return Ok(url.clone());
-    }
-    let var = cli.product.url_env_var();
-    match std::env::var(var) {
-        Ok(url) if !url.trim().is_empty() => Ok(url),
-        _ => bail!("no base URL: pass --base-url or set {var}"),
-    }
+/// Load the config file and resolve the settings for the chosen product.
+pub fn resolve_settings(cli: &Cli) -> Result<Resolved> {
+    let path = match &cli.config {
+        Some(path) => path.clone(),
+        None => Config::default_path()?,
+    };
+    let config = Config::from_file(&path)?;
+    Ok(config.resolve(
+        cli.product.section(),
+        cli.base_url.as_deref(),
+        cli.ca_cert.as_deref(),
+        &path,
+    )?)
 }
 
 /// Run a parsed command and return what it fetched.
 pub async fn execute(cli: &Cli) -> Result<Output> {
     let request = cli.to_request()?;
-    let base_url = base_url(cli)?;
-    let credentials_file = match &cli.credentials_file {
-        Some(path) => path.clone(),
-        None => Credentials::default_path()?,
-    };
-    let credentials = Credentials::from_file(&credentials_file)?;
-    let client = Client::new(&base_url, credentials, cli.ca_cert.as_deref())?;
+    let settings = resolve_settings(cli)?;
+    let client = Client::new(
+        &settings.base_url,
+        settings.credentials,
+        settings.ca_cert.as_deref(),
+    )?;
     client.execute(&request).await
 }
 
