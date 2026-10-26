@@ -129,12 +129,45 @@ page and prints the items as one JSON array.
 | `confluence` | `space` (list, get, content), `content` (list, get, children, descendants, attachments, comments, labels, history), `search`, `user` (current, get), `group` (list, members), `raw` |
 | `bitbucket` | `application-properties`, `project`, `repo`, `branch` (list, default), `tag`, `commit` (list, get, changes), `pull-request` (list, get, activities, changes, commits), `file` (list, browse, content), `user`, `group`, `raw` |
 
+## Using with Claude and other LLM agents
+
+The repo ships an [Agent Skill](.claude/skills/atlassian-cli/SKILL.md) that
+teaches an agent how to use `atlassian`:
+- when to use it, and that it can only read
+- config setup
+- example tasks with their commands
+- output shapes
+- troubleshooting
+
+[`reference.md`](.claude/skills/atlassian-cli/reference.md) lists every command
+and option; it's generated from the code.
+
+The skill deliberately says nothing about setup: the agent is told not to read
+or change configuration, and to pass configuration errors back to you. Set up
+`~/.atlassian.toml` yourself first (see [Configuration](#configuration)).
+
+- **Claude Code** in this repo picks the skill up automatically.
+- **Everywhere else:** copy the folder into your personal skills directory.
+
+  ```sh
+  cp -r .claude/skills/atlassian-cli ~/.claude/skills/
+  ```
+- **Other agents:** point them at `SKILL.md`, or let them read `--help`. Every
+  command and argument has a description, and a test enforces it.
+
 ## Development
 
 ```sh
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
+```
+
+If you change a command or option, regenerate the skill's command reference.
+`cargo test` fails while it's out of date:
+
+```sh
+UPDATE_REFERENCE=1 cargo test --test reference
 ```
 
 ### Releasing

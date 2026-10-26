@@ -72,6 +72,7 @@ pub enum JiraCommand {
 pub enum IssueCmd {
     /// Get an issue by key or id.
     Get {
+        /// Issue key or id, e.g. `ABC-123`.
         key: String,
         /// Comma-separated fields to return.
         #[arg(long)]
@@ -82,20 +83,36 @@ pub enum IssueCmd {
     },
     /// Comments on an issue.
     Comments {
+        /// Issue key or id, e.g. `ABC-123`.
         key: String,
         #[command(flatten)]
         page: PageArgs,
     },
     /// Work logs on an issue.
-    Worklogs { key: String },
+    Worklogs {
+        /// Issue key or id, e.g. `ABC-123`.
+        key: String,
+    },
     /// Transitions available to the current user.
-    Transitions { key: String },
+    Transitions {
+        /// Issue key or id, e.g. `ABC-123`.
+        key: String,
+    },
     /// Users watching an issue.
-    Watchers { key: String },
+    Watchers {
+        /// Issue key or id, e.g. `ABC-123`.
+        key: String,
+    },
     /// Votes on an issue.
-    Votes { key: String },
+    Votes {
+        /// Issue key or id, e.g. `ABC-123`.
+        key: String,
+    },
     /// Remote links (e.g. Confluence pages) on an issue.
-    RemoteLinks { key: String },
+    RemoteLinks {
+        /// Issue key or id, e.g. `ABC-123`.
+        key: String,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -108,27 +125,46 @@ pub enum ProjectCmd {
     },
     /// Get a project by key or id.
     Get {
+        /// Project key or id, e.g. `ABC`.
         key: String,
+        /// Comma-separated entities to expand, e.g. `description,lead`.
         #[arg(long)]
         expand: Option<String>,
     },
     /// Components of a project.
-    Components { key: String },
+    Components {
+        /// Project key or id, e.g. `ABC`.
+        key: String,
+    },
     /// Versions of a project.
-    Versions { key: String },
+    Versions {
+        /// Project key or id, e.g. `ABC`.
+        key: String,
+    },
     /// Issue types and their statuses for a project.
-    Statuses { key: String },
+    Statuses {
+        /// Project key or id, e.g. `ABC`.
+        key: String,
+    },
     /// Roles defined for a project.
-    Roles { key: String },
+    Roles {
+        /// Project key or id, e.g. `ABC`.
+        key: String,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum UserCmd {
     /// Get a user by username.
-    Get { username: String },
+    Get {
+        /// Username (login name), e.g. `alice`.
+        username: String,
+    },
     /// Find users whose username, name or email matches.
     Search {
+        /// Text to match against username, display name or email.
         query: String,
+        /// Include inactive users.
         #[arg(long)]
         include_inactive: bool,
         #[command(flatten)]
@@ -140,14 +176,19 @@ pub enum UserCmd {
 pub enum GroupCmd {
     /// Members of a group.
     Members {
+        /// Group name, e.g. `jira-users`.
         name: String,
+        /// Include inactive users.
         #[arg(long)]
         include_inactive: bool,
         #[command(flatten)]
         page: PageArgs,
     },
     /// Find groups whose name matches.
-    Search { query: String },
+    Search {
+        /// Text to match against group names.
+        query: String,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -159,7 +200,10 @@ pub enum FieldCmd {
 #[derive(Debug, Clone, Subcommand)]
 pub enum FilterCmd {
     /// Get a filter by id.
-    Get { id: String },
+    Get {
+        /// Filter id (from `jira filter favourite` or the filter's URL).
+        id: String,
+    },
     /// The current user's favourite filters.
     Favourite,
 }
@@ -175,7 +219,10 @@ pub enum DashboardCmd {
         page: PageArgs,
     },
     /// Get a dashboard by id.
-    Get { id: String },
+    Get {
+        /// Dashboard id (from `jira dashboard list`).
+        id: String,
+    },
 }
 
 fn p(rest: &str) -> String {

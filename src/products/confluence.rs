@@ -66,6 +66,7 @@ pub enum SpaceCmd {
         /// Only these space keys. Repeat for several.
         #[arg(long = "key")]
         keys: Vec<String>,
+        /// Comma-separated properties to expand, e.g. `description.plain,homepage`.
         #[arg(long)]
         expand: Option<String>,
         #[command(flatten)]
@@ -73,12 +74,15 @@ pub enum SpaceCmd {
     },
     /// Get a space by key.
     Get {
+        /// Space key, e.g. `DEV` (or `~username` for a personal space).
         key: String,
+        /// Comma-separated properties to expand, e.g. `description.plain,homepage`.
         #[arg(long)]
         expand: Option<String>,
     },
     /// Content in a space.
     Content {
+        /// Space key, e.g. `DEV` (or `~username` for a personal space).
         key: String,
         /// Only content of this type.
         #[arg(long = "type", value_enum)]
@@ -95,15 +99,19 @@ pub enum SpaceCmd {
 pub enum ContentCmd {
     /// List content, optionally filtered by space, type and title.
     List {
+        /// Only content in this space key.
         #[arg(long)]
         space: Option<String>,
+        /// Only content of this type.
         #[arg(long = "type", value_enum)]
         content_type: Option<ContentType>,
+        /// Only content with exactly this title (combine with `--space`).
         #[arg(long)]
         title: Option<String>,
         /// `current` (default), `trashed`, `draft` or `any`.
         #[arg(long)]
         status: Option<String>,
+        /// Comma-separated properties to expand, e.g. `body.storage,version`.
         #[arg(long)]
         expand: Option<String>,
         #[command(flatten)]
@@ -111,6 +119,7 @@ pub enum ContentCmd {
     },
     /// Get content by id.
     Get {
+        /// Content id (the `pageId` in a page's URL).
         id: String,
         /// Comma-separated properties to expand, e.g. `body.storage,version`.
         #[arg(long)]
@@ -118,15 +127,18 @@ pub enum ContentCmd {
         /// A historical version number.
         #[arg(long)]
         version: Option<u64>,
+        /// Status to look for, e.g. `current` (default), `draft` or `trashed`.
         #[arg(long)]
         status: Option<String>,
     },
     /// Direct children of a piece of content.
     Children {
+        /// Content id (the `pageId` in a page's URL).
         id: String,
         /// Type of children to list.
         #[arg(long = "type", value_enum, default_value = "page")]
         content_type: ContentType,
+        /// Comma-separated properties to expand, e.g. `body.storage,version`.
         #[arg(long)]
         expand: Option<String>,
         #[command(flatten)]
@@ -134,9 +146,12 @@ pub enum ContentCmd {
     },
     /// All descendants of a piece of content.
     Descendants {
+        /// Content id (the `pageId` in a page's URL).
         id: String,
+        /// Type of descendants to list.
         #[arg(long = "type", value_enum, default_value = "page")]
         content_type: ContentType,
+        /// Comma-separated properties to expand, e.g. `body.storage,version`.
         #[arg(long)]
         expand: Option<String>,
         #[command(flatten)]
@@ -144,6 +159,7 @@ pub enum ContentCmd {
     },
     /// Attachments on a piece of content.
     Attachments {
+        /// Content id (the `pageId` in a page's URL).
         id: String,
         /// Only the attachment with this file name.
         #[arg(long)]
@@ -153,10 +169,12 @@ pub enum ContentCmd {
     },
     /// Comments on a piece of content.
     Comments {
+        /// Content id (the `pageId` in a page's URL).
         id: String,
         /// `all` to include nested replies.
         #[arg(long)]
         depth: Option<String>,
+        /// Comma-separated properties to expand, e.g. `body.storage,version`.
         #[arg(long)]
         expand: Option<String>,
         #[command(flatten)]
@@ -164,12 +182,20 @@ pub enum ContentCmd {
     },
     /// Labels on a piece of content.
     Labels {
+        /// Content id (the `pageId` in a page's URL).
         id: String,
         #[command(flatten)]
         page: PageArgs,
     },
     /// History (creator, versions, contributors).
-    History { id: String },
+    History {
+        /// Content id (the `pageId` in a page's URL).
+        id: String,
+        /// Comma-separated properties to expand, e.g.
+        /// `contributors.publishers.users,previousVersion,nextVersion`.
+        #[arg(long)]
+        expand: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -178,8 +204,10 @@ pub enum UserCmd {
     Current,
     /// Get a user by username or user key.
     Get {
+        /// Username (login name), e.g. `alice`.
         #[arg(long, required_unless_present = "key", conflicts_with = "key")]
         username: Option<String>,
+        /// User key (the stable id Confluence assigns to a user).
         #[arg(long)]
         key: Option<String>,
     },
@@ -194,6 +222,7 @@ pub enum GroupCmd {
     },
     /// Members of a group.
     Members {
+        /// Group name, e.g. `confluence-users`.
         name: String,
         #[command(flatten)]
         page: PageArgs,
@@ -328,7 +357,9 @@ impl ContentCmd {
             ContentCmd::Labels { id, page } => {
                 ApiRequest::get(content(id, "/label")).paged(C, page)
             }
-            ContentCmd::History { id } => ApiRequest::get(content(id, "/history")),
+            ContentCmd::History { id, expand } => {
+                ApiRequest::get(content(id, "/history")).opt("expand", expand.as_ref())
+            }
         }
     }
 }
@@ -403,6 +434,8 @@ mod tests {
             req(&["content", "history", "123"]).path,
             "/rest/api/content/123/history"
         );
+        let r = req(&["content", "history", "123", "--expand", "previousVersion"]);
+        assert_eq!(r.query, vec![("expand".into(), "previousVersion".into())]);
     }
 
     #[test]

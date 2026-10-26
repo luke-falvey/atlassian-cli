@@ -76,7 +76,10 @@ pub enum ProjectCmd {
         page: PageArgs,
     },
     /// Get a project by key.
-    Get { key: String },
+    Get {
+        /// Project key, e.g. `PROJ` (or `~username` for a personal project).
+        key: String,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -129,8 +132,10 @@ pub enum TagCmd {
     List {
         #[command(flatten)]
         repo: RepoRef,
+        /// Only tags whose name contains this text.
         #[arg(long)]
         filter: Option<String>,
+        /// `ALPHABETICAL` or `MODIFICATION`.
         #[arg(long)]
         order_by: Option<String>,
         #[command(flatten)]
@@ -160,12 +165,14 @@ pub enum CommitCmd {
     Get {
         #[command(flatten)]
         repo: RepoRef,
+        /// Commit hash (full or abbreviated) or ref.
         id: String,
     },
     /// Files changed by a commit.
     Changes {
         #[command(flatten)]
         repo: RepoRef,
+        /// Commit hash (full or abbreviated) or ref.
         id: String,
         #[command(flatten)]
         page: PageArgs,
@@ -206,12 +213,14 @@ pub enum PullRequestCmd {
     Get {
         #[command(flatten)]
         repo: RepoRef,
+        /// Pull request id (the number in its URL).
         id: u64,
     },
     /// Comments, approvals and updates on a pull request.
     Activities {
         #[command(flatten)]
         repo: RepoRef,
+        /// Pull request id (the number in its URL).
         id: u64,
         #[command(flatten)]
         page: PageArgs,
@@ -220,6 +229,7 @@ pub enum PullRequestCmd {
     Changes {
         #[command(flatten)]
         repo: RepoRef,
+        /// Pull request id (the number in its URL).
         id: u64,
         #[command(flatten)]
         page: PageArgs,
@@ -228,6 +238,7 @@ pub enum PullRequestCmd {
     Commits {
         #[command(flatten)]
         repo: RepoRef,
+        /// Pull request id (the number in its URL).
         id: u64,
         #[command(flatten)]
         page: PageArgs,
@@ -252,7 +263,9 @@ pub enum FileCmd {
     Browse {
         #[command(flatten)]
         repo: RepoRef,
+        /// File or directory path (default: the repository root).
         path: Option<String>,
+        /// Commit or ref to read at, e.g. `refs/heads/main` (default: the default branch).
         #[arg(long)]
         at: Option<String>,
         #[command(flatten)]
@@ -262,7 +275,9 @@ pub enum FileCmd {
     Content {
         #[command(flatten)]
         repo: RepoRef,
+        /// File path, e.g. `src/main.rs`.
         path: String,
+        /// Commit or ref to read at, e.g. `refs/heads/main` (default: the default branch).
         #[arg(long)]
         at: Option<String>,
     },
@@ -279,13 +294,17 @@ pub enum UserCmd {
         page: PageArgs,
     },
     /// Get a user by slug.
-    Get { slug: String },
+    Get {
+        /// User slug (usually the username), e.g. `alice`.
+        slug: String,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum GroupCmd {
     /// List groups.
     List {
+        /// Only groups whose name contains this text.
         #[arg(long)]
         filter: Option<String>,
         #[command(flatten)]
