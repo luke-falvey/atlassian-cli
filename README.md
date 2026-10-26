@@ -25,7 +25,7 @@ are builds for `linux-amd64`, `linux-arm64`, `macos-amd64` (Intel) and
 `macos-arm64` (Apple Silicon):
 
 ```sh
-version=v0.1.0 platform=linux-amd64
+version=v0.2.0 platform=linux-amd64
 base=https://github.com/luke-falvey/atlassian-cli/releases/download/$version
 curl -fLO "$base/atlassian-$version-$platform.tar.gz"
 curl -fLO "$base/atlassian-$version-$platform.tar.gz.sha256"
