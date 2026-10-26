@@ -121,4 +121,38 @@ mod tests {
         assert_eq!(cli.config, Some(PathBuf::from("/tmp/c.toml")));
         assert!(cli.compact);
     }
+
+    /// Every command and argument must explain itself in `--help`: people
+    /// and LLM agents learn the CLI from it.
+    #[test]
+    fn every_command_and_argument_has_help() {
+        fn walk(cmd: &clap::Command, path: &str, missing: &mut Vec<String>) {
+            for arg in cmd.get_arguments() {
+                let id = arg.get_id().as_str();
+                if id == "help" || id == "version" || arg.is_global_set() && !path.is_empty() {
+                    continue;
+                }
+                if arg.get_help().is_none() {
+                    missing.push(format!("argument `{id}` of `atlassian{path}`"));
+                }
+            }
+            for sub in cmd.get_subcommands() {
+                if sub.get_name() == "help" {
+                    continue;
+                }
+                let sub_path = format!("{path} {}", sub.get_name());
+                if sub.get_about().is_none() {
+                    missing.push(format!("command `atlassian{sub_path}`"));
+                }
+                walk(sub, &sub_path, missing);
+            }
+        }
+        let mut missing = Vec::new();
+        walk(&Cli::command(), "", &mut missing);
+        assert!(
+            missing.is_empty(),
+            "missing help text:\n  {}",
+            missing.join("\n  ")
+        );
+    }
 }

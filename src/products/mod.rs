@@ -15,7 +15,8 @@ use crate::request::{ApiRequest, parse_key_val};
 /// don't have their own command yet.
 #[derive(Debug, Clone, Args)]
 pub struct RawArgs {
-    /// Path below the base URL, starting with `/` (e.g. `/rest/api/2/serverInfo`).
+    /// Path below the base URL, starting with `/`: e.g. `/rest/api/2/serverInfo` (Jira),
+    /// `/rest/api/space` (Confluence) or `/rest/api/latest/projects` (Bitbucket).
     pub path: String,
     /// Query parameter as key=value. Repeat for several parameters.
     #[arg(short, long = "query", value_name = "KEY=VALUE", value_parser = parse_key_val)]
@@ -39,7 +40,10 @@ pub enum ListGet {
     /// List all.
     List,
     /// Get one by id.
-    Get { id: String },
+    Get {
+        /// Id of the item, as shown by `list`.
+        id: String,
+    },
 }
 
 impl ListGet {

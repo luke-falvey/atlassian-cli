@@ -41,11 +41,18 @@ pub enum BoardCmd {
         page: PageArgs,
     },
     /// Get a board by id.
-    Get { id: String },
+    Get {
+        /// Board id (from `agile board list`).
+        id: String,
+    },
     /// Board configuration (columns, estimation, ranking).
-    Configuration { id: String },
+    Configuration {
+        /// Board id (from `agile board list`).
+        id: String,
+    },
     /// Sprints on a board.
     Sprints {
+        /// Board id (from `agile board list`).
         id: String,
         /// Comma-separated states: `future`, `active`, `closed`.
         #[arg(long)]
@@ -55,6 +62,7 @@ pub enum BoardCmd {
     },
     /// Issues on a board.
     Issues {
+        /// Board id (from `agile board list`).
         id: String,
         #[command(flatten)]
         filter: IssueFilter,
@@ -63,6 +71,7 @@ pub enum BoardCmd {
     },
     /// Issues in a board's backlog.
     Backlog {
+        /// Board id (from `agile board list`).
         id: String,
         #[command(flatten)]
         filter: IssueFilter,
@@ -71,6 +80,7 @@ pub enum BoardCmd {
     },
     /// Epics on a board.
     Epics {
+        /// Board id (from `agile board list`).
         id: String,
         /// Only epics that are done (`true`) or not done (`false`).
         #[arg(long)]
@@ -83,9 +93,13 @@ pub enum BoardCmd {
 #[derive(Debug, Clone, Subcommand)]
 pub enum SprintCmd {
     /// Get a sprint by id.
-    Get { id: String },
+    Get {
+        /// Sprint id (from `agile board sprints`).
+        id: String,
+    },
     /// Issues in a sprint.
     Issues {
+        /// Sprint id (from `agile board sprints`).
         id: String,
         #[command(flatten)]
         filter: IssueFilter,
@@ -97,9 +111,13 @@ pub enum SprintCmd {
 #[derive(Debug, Clone, Subcommand)]
 pub enum EpicCmd {
     /// Get an epic by id or key.
-    Get { id: String },
+    Get {
+        /// Epic id or issue key, e.g. `ABC-42`.
+        id: String,
+    },
     /// Issues in an epic.
     Issues {
+        /// Epic id or issue key, e.g. `ABC-42`.
         id: String,
         #[command(flatten)]
         filter: IssueFilter,
