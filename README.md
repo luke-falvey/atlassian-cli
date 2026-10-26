@@ -140,22 +140,31 @@ cargo test
 ### Releasing
 
 1. Bump `version` in `Cargo.toml` (and `Cargo.lock` with `cargo check`), and merge.
-2. Tag the merge commit and push the tag:
+2. Create the tag, either way:
+   - push it from git:
 
-   ```sh
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
+     ```sh
+     git tag v0.1.0
+     git push origin v0.1.0
+     ```
 
-The `Release` workflow (`.github/workflows/release.yml`):
+   - or draft a release on github.com with a new `v0.1.0` tag on `main`, and
+     publish it.
+
+The `Release` workflow (`.github/workflows/release.yml`) then:
 - checks the tag matches the `Cargo.toml` version
 - runs the checks and tests
 - builds all four binaries on native GitHub runners
-- publishes a GitHub Release with the `.tar.gz` archives and their `.sha256`
-  checksums
+- attaches the `.tar.gz` archives and their `.sha256` checksums to the tag's
+  release. It creates the release if there isn't one, or adds to it if you
+  made it on github.com.
+
+To build and attach the binaries again for an existing tag, go to **Actions →
+Release → Run workflow**, and enter the tag (e.g. `v0.1.0`). Files with the
+same name are replaced.
 
 Pull requests that change the workflow, `Cargo.toml` or `Cargo.lock` run the
-same builds without publishing, as does a manual run from the Actions tab.
+same builds without publishing, as does a manual run with no tag.
 
 ### How the tests work
 

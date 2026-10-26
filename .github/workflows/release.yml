@@ -1,8 +1,13 @@
 name: Release
 
 # Pushing a `v*` tag builds `atlassian` for Linux and macOS (amd64 and arm64)
-# and publishes them as a GitHub Release. Pull requests that touch the build
-# setup, and manual runs, build the same binaries without publishing.
+# and publishes them on the tag's GitHub Release, creating the release if it
+# doesn't exist yet (e.g. when the tag was pushed from git) or adding to it if
+# it does (e.g. when the release was drafted and published on github.com).
+#
+# Pull requests that touch the build setup build the same binaries without
+# publishing. A manual run does the same, or, given a `tag`, builds that tag
+# and publishes to its release, which re-publishes binaries for a release.
 
 on:
   push:
@@ -13,9 +18,16 @@ on:
       - Cargo.toml
       - Cargo.lock
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag (e.g. v0.1.0) to build and publish. Leave empty to only build.
+        required: false
+        default: ""
 
 env:
   CARGO_TERM_COLOR: always
+  # The tag being released, or empty when only building.
+  RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
 
 permissions:
   contents: read
@@ -25,16 +37,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: Tag matches Cargo.toml version
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.RELEASE_TAG
         run: |
           crate_version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
-          if [ "${GITHUB_REF_NAME}" != "v${crate_version}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${crate_version} (expected v${crate_version})"
+          if [ "${RELEASE_TAG}" != "v${crate_version}" ]; then
+            echo "::error::Tag ${RELEASE_TAG} does not match Cargo.toml version ${crate_version} (expected v${crate_version})"
             exit 1
           fi
       - run: cargo fmt --check
@@ -69,6 +83,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -83,8 +99,8 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            version="${GITHUB_REF_NAME}"
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            version="${RELEASE_TAG}"
           else
             version="dev-${GITHUB_SHA::7}"
           fi
@@ -103,7 +119,8 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
+    # Job-level `if` can't read `env`, so repeat the RELEASE_TAG condition.
+    if: github.ref_type == 'tag' || inputs.tag
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -119,8 +136,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -l dist
-          gh release create "${GITHUB_REF_NAME}" dist/* \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "${GITHUB_REF_NAME}" \
-            --verify-tag \
-            --generate-notes
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            # Created on github.com (or by an earlier run): attach the files,
+            # replacing any with the same name so re-runs are safe.
+            gh release upload "${RELEASE_TAG}" dist/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber
+          else
+            gh release create "${RELEASE_TAG}" dist/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${RELEASE_TAG}" \
+              --verify-tag \
+              --generate-notes
+          fi
