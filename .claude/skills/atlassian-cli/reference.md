@@ -13,9 +13,6 @@ Accepted by every command, before or after it.
 
 | Argument / option | Description |
 |---|---|
-| `--base-url <URL>` | Base URL of the product, e.g. https://jira.example.com. Overrides `base_url` in the product's config section |
-| `--config <PATH>` | Config file [default: ~/.atlassian.toml] |
-| `--ca-cert <PATH>` | Extra PEM CA certificate to trust, for servers with a private CA. Overrides `ca_cert` in the product's config section |
 | `--compact` | Print compact JSON instead of pretty-printed JSON |
 
 ## `jira`

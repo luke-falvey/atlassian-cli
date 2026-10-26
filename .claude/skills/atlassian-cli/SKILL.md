@@ -28,8 +28,7 @@ level.
 - **Read-only.** There are no create, update, delete, comment or transition
   commands. If asked to change something, say the CLI can't, and give the
   information needed to do it by hand. Never invent a command.
-- **Boards, sprints and epics are under `agile`**, not `jira`. They use the
-  `[jira]` config section.
+- **Boards, sprints and epics are under `agile`**, not `jira`.
 - **`--all` for complete lists.** List commands return one page by default
   (`--start`, `--limit`). `--all` follows every page and prints a single
   **JSON array** of the items, without the page wrapper.
@@ -39,35 +38,18 @@ level.
   page bodies unless asked: `--expand body.storage`.
 - **Use `raw` for endpoints without a command:**
   `atlassian jira raw /rest/api/2/issue/ABC-1/editmeta -q expand=projects`.
-  The path is relative to the base URL and includes the `/rest/...` prefix.
+  The path starts with the product's `/rest/...` prefix.
 - **IDs:**
   - Jira issues use keys (`ABC-123`).
   - Confluence content uses numeric ids (the `pageId` in a page URL). Find
     them with `confluence search` or `content list --space KEY --title "..."`.
   - Bitbucket repos are `PROJECT REPO-SLUG`; personal projects are
     `~username`.
+- **Connection settings and credentials are set up by the user.** Don't read,
+  create or edit any config files, and don't pass `--config`, `--base-url` or `--ca-cert`.
+  If a command fails with a configuration or authentication error, stop and
+  tell the user the error message.
 
-## Setup
-
-Settings come from `~/.atlassian.toml` (or `--config PATH`):
-
-```toml
-username = "alice"          # default Basic-auth credentials
-password = "secret"
-
-[jira]                      # also used by `agile`
-base_url = "https://jira.example.com"
-
-[confluence]
-base_url = "https://wiki.example.com/confluence"   # include the context path
-# username/password/ca_cert can be overridden per section
-
-[bitbucket]
-base_url = "https://bitbucket.example.com"
-```
-
-`--base-url URL` and `--ca-cert PEM` override the file for one command.
-**Don't print or echo the config file**: it contains a password.
 
 ## Worked tasks
 
@@ -85,7 +67,9 @@ base_url = "https://bitbucket.example.com"
 | Pages edited in the last week in a space | `atlassian confluence search --cql 'space = DEV AND type = page AND lastmodified > now("-7d")' --all` |
 | Read a page's content | `atlassian confluence content get <pageId> --expand body.storage,version` |
 | A page by title | `atlassian confluence content list --space DEV --title "Release checklist" --expand version` |
-| Child pages | `atlassian confluence content children <pageId> --all` |
+| A page as it was at an earlier version | `atlassian confluence content get <pageId> --version 3 --status historical --expand body.storage,version`. Confluence only returns a past version with `--status historical`. For version numbers, see the current one with `atlassian confluence content get <pageId> --expand version` (`version.number`), or the previous one with `atlassian confluence content history <pageId> --expand previousVersion`. |
+| Direct child pages | `atlassian confluence content children <pageId> --all` |
+| All pages below a page, at any depth | `atlassian confluence content descendants <pageId> --all`, or with CQL: `atlassian confluence search --cql 'ancestor = <pageId> AND type = page' --all` |
 | Who changed a page | `atlassian confluence content history <pageId> --expand contributors.publishers.users,previousVersion` |
 | Repos in a project | `atlassian bitbucket repo list PROJ --all` |
 | Open PRs into main | `atlassian bitbucket pull-request list PROJ repo --state OPEN --at refs/heads/main --all` |
@@ -116,13 +100,10 @@ those unchanged.
 
 | Error | Meaning and fix |
 |---|---|
-| `no base URL for <product>` | Add `base_url` to that section of `~/.atlassian.toml`, or pass `--base-url`. |
-| `no username/password for <product>` | Set `username`/`password` at the top of the config or in the section. |
-| `invalid config file ... unknown field` | Misspelled key, or an unsupported section (only `jira`, `confluence`, `bitbucket`). |
-| `returned 401 Unauthorized` | Wrong credentials, or the account is locked or needs a CAPTCHA. Check by logging in to the web UI. |
+| Configuration errors: `no base URL`, `no username`, `no password`, `could not read config file`, `invalid config file`, or a TLS or certificate error | The CLI isn't set up for this product. Stop, and tell the user the error; they manage the configuration. |
+| `returned 401 Unauthorized` | The configured credentials were rejected (wrong, expired, or the account is locked). Stop, and tell the user. |
 | `returned 403` | The user can't see that resource. |
-| `returned 404` | Wrong key or id, or a wrong base URL (e.g. a missing `/confluence` context path). |
-| TLS or certificate errors | Set `ca_cert = "/path/ca.pem"` in the section, or pass `--ca-cert`. |
+| `returned 404` | Wrong key or id. If valid ids return 404 too, the CLI's server address may be wrong; tell the user. |
 
 Exit status is 0 on success and 1 on any error. Errors go to stderr, prefixed
 with `error:`.

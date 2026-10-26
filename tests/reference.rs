@@ -11,6 +11,12 @@ use atlassian_cli::Cli;
 use clap::{Arg, ArgAction, Command, CommandFactory, Parser};
 
 const REFERENCE: &str = ".claude/skills/atlassian-cli/reference.md";
+const SKILL: &str = ".claude/skills/atlassian-cli/SKILL.md";
+
+/// Global options that point the CLI at a server or credentials. People set
+/// these up; the agent using the skill must not, so the reference leaves
+/// them out (they are still in `--help` and the README).
+const CONFIG_ARGS: &[&str] = &["config", "base_url", "ca_cert"];
 
 /// Help text on one line, safe inside a Markdown table cell.
 fn cell(text: &str) -> String {
@@ -157,7 +163,9 @@ fn render() -> String {
     out.push_str("## Global options\n\nAccepted by every command, before or after it.\n\n");
     let globals: Vec<&Arg> = cli
         .get_arguments()
-        .filter(|a| a.is_global_set() && !a.is_hide_set())
+        .filter(|a| {
+            a.is_global_set() && !a.is_hide_set() && !CONFIG_ARGS.contains(&a.get_id().as_str())
+        })
         .collect();
     arg_table(&mut out, &globals);
 
@@ -238,10 +246,7 @@ fn shell_words(line: &str) -> Vec<String> {
 /// so the skill can't teach commands or options that don't exist.
 #[test]
 fn skill_examples_parse() {
-    let skill = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join(".claude/skills/atlassian-cli/SKILL.md"),
-    )
-    .unwrap();
+    let skill = read(SKILL);
     // Placeholders such as <boardId> stand for real values.
     let placeholder = regex::Regex::new(r"<[A-Za-z]+>").unwrap();
     let mut checked = 0;
@@ -266,4 +271,44 @@ fn skill_examples_parse() {
         "SKILL.md examples that don't parse:\n  {}",
         failures.join("\n  ")
     );
+}
+
+fn read(path: &str) -> String {
+    std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(path)).unwrap()
+}
+
+/// Configuration is set up by people, not by the agent: the skill must not
+/// teach it. The one rule telling the agent to leave it alone is allowed to
+/// name the flags.
+#[test]
+fn skill_never_mentions_configuration() {
+    const ALLOWED_RULE: &str = "don't pass `--config`, `--base-url` or `--ca-cert`";
+    const FORBIDDEN: &[&str] = &[
+        ".atlassian.toml",
+        "--config",
+        "--base-url",
+        "--ca-cert",
+        "base_url",
+        "ca_cert",
+        "username =",
+        "password =",
+        "[jira]",
+        "[confluence]",
+        "[bitbucket]",
+    ];
+    let skill = read(SKILL);
+    assert!(
+        skill.contains(ALLOWED_RULE),
+        "SKILL.md should keep the rule: {ALLOWED_RULE}"
+    );
+    for (file, text) in [
+        (SKILL, skill.replace(ALLOWED_RULE, "")),
+        (REFERENCE, read(REFERENCE)),
+    ] {
+        let found: Vec<&&str> = FORBIDDEN.iter().filter(|f| text.contains(**f)).collect();
+        assert!(
+            found.is_empty(),
+            "{file} mentions configuration, which the agent must not touch: {found:?}"
+        );
+    }
 }

@@ -142,6 +142,10 @@ teaches an agent how to use `atlassian`:
 [`reference.md`](.claude/skills/atlassian-cli/reference.md) lists every command
 and option; it's generated from the code.
 
+The skill deliberately says nothing about setup: the agent is told not to read
+or change configuration, and to pass configuration errors back to you. Set up
+`~/.atlassian.toml` yourself first (see [Configuration](#configuration)).
+
 - **Claude Code** in this repo picks the skill up automatically.
 - **Everywhere else:** copy the folder into your personal skills directory.
 
