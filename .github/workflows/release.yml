@@ -1,0 +1,126 @@
+name: Release
+
+# Pushing a `v*` tag builds `atlassian` for Linux and macOS (amd64 and arm64)
+# and publishes them as a GitHub Release. Pull requests that touch the build
+# setup, and manual runs, build the same binaries without publishing.
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - Cargo.toml
+      - Cargo.lock
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Tag matches Cargo.toml version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          crate_version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          if [ "${GITHUB_REF_NAME}" != "v${crate_version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${crate_version} (expected v${crate_version})"
+            exit 1
+          fi
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --no-fail-fast
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            target: x86_64-unknown-linux-gnu
+            # Older glibc than ubuntu-latest, so the binary runs on more distros.
+            runner: ubuntu-22.04
+            native: true
+          - name: linux-arm64
+            target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04-arm
+            native: true
+          - name: macos-arm64
+            target: aarch64-apple-darwin
+            runner: macos-latest
+            native: true
+          - name: macos-amd64
+            # Cross-compiled on the Apple Silicon runner; Apple's toolchain
+            # builds for both architectures.
+            target: x86_64-apple-darwin
+            runner: macos-latest
+            native: false
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Smoke test
+        if: matrix.native
+        run: ./target/${{ matrix.target }}/release/atlassian --version
+      - name: Package
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="dev-${GITHUB_SHA::7}"
+          fi
+          dir="atlassian-${version}-${{ matrix.name }}"
+          mkdir -p "dist/${dir}"
+          cp "target/${{ matrix.target }}/release/atlassian" README.md LICENSE "dist/${dir}/"
+          cd dist
+          tar czf "${dir}.tar.gz" "${dir}"
+          shasum -a 256 "${dir}.tar.gz" > "${dir}.tar.gz.sha256"
+          rm -r "${dir}"
+          ls -l
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atlassian-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: atlassian-*
+          merge-multiple: true
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --verify-tag \
+            --generate-notes
