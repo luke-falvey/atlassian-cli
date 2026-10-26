@@ -28,7 +28,7 @@ impl RawArgs {
         if !self.path.starts_with('/') {
             bail!("raw path must start with `/`, got `{}`", self.path);
         }
-        let mut req = ApiRequest::get(self.path.clone());
+        let mut req = ApiRequest::get(self.path.clone()).guard(crate::request::Guard::Raw);
         req.query = self.query.clone();
         Ok(req)
     }

@@ -256,7 +256,10 @@ fn skill_examples_parse() {
         if !span.starts_with("atlassian ") || span.contains("<product>") {
             continue;
         }
-        let example = placeholder.replace_all(span, "1").into_owned();
+        // Inside Markdown tables, `\|` is a literal pipe.
+        let example = placeholder
+            .replace_all(&span.replace("\\|", "|"), "1")
+            .into_owned();
         let words = shell_words(&example);
         match Cli::try_parse_from(&words) {
             Ok(_) => {}

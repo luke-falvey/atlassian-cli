@@ -31,6 +31,27 @@ The user whose credentials are in use
 
 No arguments or options.
 
+### `atlassian jira issue list`
+
+List issues, filtered by project, people, status, type and dates
+
+| Argument / option | Description |
+|---|---|
+| `--project <KEY>` | Only issues in this project key, e.g. `ABC`. Repeat for several (repeatable) |
+| `--assignee <USER>` | Only issues assigned to this username, or `me` |
+| `--reporter <USER>` | Only issues reported by this username, or `me` |
+| `--status <STATUS>` | Only issues with this status, e.g. `In Progress`. Repeat for several (repeatable) |
+| `--type <TYPE>` | Only issues of this type, e.g. `Bug`. Repeat for several (repeatable) |
+| `--open` | Only unresolved issues |
+| `--updated-since <PERIOD>` | Only issues updated within this period: a number and `m`, `h`, `d` or `w`, e.g. `7d` |
+| `--created-since <PERIOD>` | Only issues created within this period, e.g. `30d` |
+| `--order-by <ORDER_BY>` | Sort order (newest or highest first, except `key`) (default: `updated`; one of `updated`, `created`, `priority`, `key`) |
+| `--fields <FIELDS>` | Comma-separated fields to return, e.g. `summary,status,assignee` |
+| `--expand <EXPAND>` | Comma-separated entities to expand, e.g. `changelog` |
+| `--start <START>` | Index of the first result to return |
+| `--limit <LIMIT>` | Maximum number of results per page |
+| `--all` | Follow pagination and print every result as one JSON array |
+
 ### `atlassian jira issue get`
 
 Get an issue by key or id
@@ -91,19 +112,6 @@ Remote links (e.g. Confluence pages) on an issue
 | Argument / option | Description |
 |---|---|
 | `<KEY>` | Issue key or id, e.g. `ABC-123` |
-
-### `atlassian jira search`
-
-Search for issues with JQL
-
-| Argument / option | Description |
-|---|---|
-| `--jql <JQL>` | JQL query, e.g. `project = ABC AND status = Open` (required) |
-| `--fields <FIELDS>` | Comma-separated fields to return (default: navigable fields) |
-| `--expand <EXPAND>` | Comma-separated entities to expand, e.g. `changelog` |
-| `--start <START>` | Index of the first result to return |
-| `--limit <LIMIT>` | Maximum number of results per page |
-| `--all` | Follow pagination and print every result as one JSON array |
 
 ### `atlassian jira project list`
 
@@ -364,7 +372,6 @@ Issues on a board
 | Argument / option | Description |
 |---|---|
 | `<ID>` | Board id (from `agile board list`) |
-| `--jql <JQL>` | Extra JQL to filter issues |
 | `--fields <FIELDS>` | Comma-separated fields to return |
 | `--start <START>` | Index of the first result to return |
 | `--limit <LIMIT>` | Maximum number of results per page |
@@ -377,7 +384,6 @@ Issues in a board's backlog
 | Argument / option | Description |
 |---|---|
 | `<ID>` | Board id (from `agile board list`) |
-| `--jql <JQL>` | Extra JQL to filter issues |
 | `--fields <FIELDS>` | Comma-separated fields to return |
 | `--start <START>` | Index of the first result to return |
 | `--limit <LIMIT>` | Maximum number of results per page |
@@ -410,7 +416,6 @@ Issues in a sprint
 | Argument / option | Description |
 |---|---|
 | `<ID>` | Sprint id (from `agile board sprints`) |
-| `--jql <JQL>` | Extra JQL to filter issues |
 | `--fields <FIELDS>` | Comma-separated fields to return |
 | `--start <START>` | Index of the first result to return |
 | `--limit <LIMIT>` | Maximum number of results per page |
@@ -431,7 +436,6 @@ Issues in an epic
 | Argument / option | Description |
 |---|---|
 | `<ID>` | Epic id or issue key, e.g. `ABC-42` |
-| `--jql <JQL>` | Extra JQL to filter issues |
 | `--fields <FIELDS>` | Comma-separated fields to return |
 | `--start <START>` | Index of the first result to return |
 | `--limit <LIMIT>` | Maximum number of results per page |
@@ -580,18 +584,6 @@ History (creator, versions, contributors)
 |---|---|
 | `<ID>` | Content id (the `pageId` in a page's URL) |
 | `--expand <EXPAND>` | Comma-separated properties to expand, e.g. `contributors.publishers.users,previousVersion,nextVersion` |
-
-### `atlassian confluence search`
-
-Search content with CQL
-
-| Argument / option | Description |
-|---|---|
-| `--cql <CQL>` | CQL query, e.g. `type = page AND space = DEV` (required) |
-| `--expand <EXPAND>` | Comma-separated properties to expand |
-| `--start <START>` | Index of the first result to return |
-| `--limit <LIMIT>` | Maximum number of results per page |
-| `--all` | Follow pagination and print every result as one JSON array |
 
 ### `atlassian confluence user current`
 

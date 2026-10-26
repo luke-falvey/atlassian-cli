@@ -8,6 +8,7 @@ use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::Value;
 
 use crate::config::Credentials;
+use crate::log::RequestLog;
 use crate::request::{ApiRequest, PageStyle};
 
 /// What a command printed: parsed JSON or plain text (e.g. raw file content).
@@ -35,6 +36,8 @@ pub struct Client {
     http: reqwest::Client,
     base_url: String,
     credentials: Credentials,
+    log: Option<RequestLog>,
+    max_items: Option<usize>,
 }
 
 impl Client {
@@ -64,7 +67,28 @@ impl Client {
             http: builder.build().context("could not build HTTP client")?,
             base_url,
             credentials,
+            log: None,
+            max_items: None,
         })
+    }
+
+    /// Record every request in `log`.
+    pub fn with_log(mut self, log: Option<RequestLog>) -> Self {
+        self.log = log;
+        self
+    }
+
+    /// Stop `--all` after this many items.
+    pub fn with_max_items(mut self, max: Option<usize>) -> Self {
+        self.max_items = max;
+        self
+    }
+
+    fn record(&self, url: &str, status: Option<u16>, items: Option<usize>) -> Result<()> {
+        match &self.log {
+            Some(log) => log.request(url, status, items),
+            None => Ok(()),
+        }
     }
 
     /// Run the request, following pagination when `--all` was given.
@@ -78,14 +102,21 @@ impl Client {
     /// Send a single GET request.
     pub async fn get(&self, path: &str, query: &[(String, String)]) -> Result<Output> {
         let url = format!("{}{}", self.base_url, path);
-        let resp = self
+        let request = self
             .http
             .get(&url)
             .basic_auth(&self.credentials.username, Some(&self.credentials.password))
             .query(query)
-            .send()
-            .await
-            .with_context(|| format!("request to {url} failed"))?;
+            .build()
+            .with_context(|| format!("invalid request to {url}"))?;
+        let full_url = request.url().to_string();
+        let resp = match self.http.execute(request).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                self.record(&full_url, None, None)?;
+                return Err(e).with_context(|| format!("request to {url} failed"));
+            }
+        };
 
         let status = resp.status();
         let is_json = resp
@@ -99,18 +130,25 @@ impl Client {
             .with_context(|| format!("could not read response from {url}"))?;
 
         if !status.is_success() {
+            self.record(&full_url, Some(status.as_u16()), None)?;
             bail!("GET {path} returned {status}{}", error_detail(&body));
         }
-        if body.is_empty() {
-            return Ok(Output::Json(Value::Null));
-        }
-        if is_json {
+        let output = if body.is_empty() {
+            Output::Json(Value::Null)
+        } else if is_json {
             let v = serde_json::from_str(&body)
                 .with_context(|| format!("GET {path} returned invalid JSON"))?;
-            Ok(Output::Json(v))
+            Output::Json(v)
         } else {
-            Ok(Output::Text(body))
-        }
+            Output::Text(body)
+        };
+        let items = match &output {
+            Output::Json(Value::Array(a)) => Some(a.len()),
+            Output::Json(v) => page_items(v).map(Vec::len),
+            Output::Text(_) => None,
+        };
+        self.record(&full_url, Some(status.as_u16()), items)?;
+        Ok(output)
     }
 
     async fn get_all(
@@ -137,6 +175,19 @@ impl Client {
             };
             let count = page_items.len() as u64;
             items.extend(page_items.iter().cloned());
+            if let Some(max) = self.max_items
+                && items.len() >= max
+            {
+                let more = items.len() > max || next_start(style, &page, start, count).is_some();
+                items.truncate(max);
+                if more {
+                    eprintln!(
+                        "warning: stopped at {max} results (the configured maximum); \
+                         there are more. Narrow the request to see the rest."
+                    );
+                }
+                return Ok(Output::Json(Value::Array(items)));
+            }
             match next_start(style, &page, start, count) {
                 Some(next) if next > start => start = next,
                 _ => return Ok(Output::Json(Value::Array(items))),
@@ -160,6 +211,18 @@ const ITEM_KEYS: &[&str] = &[
 pub fn page_items(page: &Value) -> Option<&Vec<Value>> {
     let obj = page.as_object()?;
     ITEM_KEYS.iter().find_map(|k| obj.get(*k)?.as_array())
+}
+
+/// The items of a list response: the array itself, or the items on a page.
+pub fn items_mut(value: &mut Value) -> Option<&mut Vec<Value>> {
+    if value.is_array() {
+        return value.as_array_mut();
+    }
+    let obj = value.as_object_mut()?;
+    let key = ITEM_KEYS
+        .iter()
+        .find(|k| obj.get(**k).is_some_and(Value::is_array))?;
+    obj.get_mut(*key)?.as_array_mut()
 }
 
 /// Where the next page starts, or `None` when `page` is the last one.

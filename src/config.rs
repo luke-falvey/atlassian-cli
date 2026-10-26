@@ -8,6 +8,9 @@
 //! [jira]          # also used by `agile` (Jira Software)
 //! base_url = "https://jira.example.com"
 //!
+//! [jira.scope]    # optional: limit what may be read (see `crate::scope`)
+//! projects = ["ABC"]
+//!
 //! [confluence]
 //! base_url = "https://wiki.example.com/confluence"
 //! username = "svc-confluence"   # optional per-product override
@@ -22,6 +25,8 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+
+use crate::scope::{ProductScope, Scope};
 use thiserror::Error;
 
 /// File name looked up in the user's home directory.
@@ -88,6 +93,9 @@ pub struct ProductConfig {
     pub username: Option<String>,
     pub password: Option<String>,
     pub ca_cert: Option<PathBuf>,
+    /// Limits on what this product may read, e.g. `[jira.scope]`.
+    /// Absent: no limits.
+    pub scope: Option<ProductScope>,
 }
 
 /// The whole config file.
@@ -102,6 +110,54 @@ pub struct Config {
     pub confluence: ProductConfig,
     #[serde(default)]
     pub bitbucket: ProductConfig,
+    #[serde(default)]
+    pub log: LogConfig,
+}
+
+/// The `[log]` section: where to record requests.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct LogConfig {
+    /// Record requests (default: true).
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Log file (default: `~/.local/state/atlassian/requests.log`). A leading
+    /// `~/` means the home directory.
+    pub path: Option<PathBuf>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            path: None,
+        }
+    }
+}
+
+/// Default request log location.
+pub const DEFAULT_LOG_PATH: &str = ".local/state/atlassian/requests.log";
+
+impl LogConfig {
+    /// The log file to write, or `None` when logging is off.
+    pub fn file(&self) -> Result<Option<PathBuf>, ConfigError> {
+        if !self.enabled {
+            return Ok(None);
+        }
+        let home = || dirs::home_dir().ok_or(ConfigError::NoHomeDir);
+        let path = match &self.path {
+            None => home()?.join(DEFAULT_LOG_PATH),
+            Some(p) => match p.strip_prefix("~") {
+                Ok(rest) => home()?.join(rest),
+                Err(_) => p.clone(),
+            },
+        };
+        Ok(Some(path))
+    }
 }
 
 impl fmt::Debug for Config {
@@ -109,11 +165,12 @@ impl fmt::Debug for Config {
         let redact = |p: &Option<String>| p.as_ref().map(|_| "<redacted>");
         let section = |s: &ProductConfig| {
             format!(
-                "{{ base_url: {:?}, username: {:?}, password: {:?}, ca_cert: {:?} }}",
+                "{{ base_url: {:?}, username: {:?}, password: {:?}, ca_cert: {:?}, scope: {:?} }}",
                 s.base_url,
                 s.username,
                 redact(&s.password),
-                s.ca_cert
+                s.ca_cert,
+                s.scope
             )
         };
         f.debug_struct("Config")
@@ -122,6 +179,7 @@ impl fmt::Debug for Config {
             .field("jira", &section(&self.jira))
             .field("confluence", &section(&self.confluence))
             .field("bitbucket", &section(&self.bitbucket))
+            .field("log", &self.log)
             .finish()
     }
 }
@@ -148,6 +206,9 @@ pub struct Resolved {
     pub base_url: String,
     pub credentials: Credentials,
     pub ca_cert: Option<PathBuf>,
+    pub scope: Scope,
+    /// Request log file, or `None` when logging is off.
+    pub log: Option<PathBuf>,
 }
 
 impl Config {
@@ -171,10 +232,21 @@ impl Config {
 
     /// Parse config text. `path` is only used in errors.
     pub fn parse(contents: &str, path: &Path) -> Result<Self, ConfigError> {
-        toml::from_str(contents).map_err(|e| ConfigError::Parse {
+        let config: Self = toml::from_str(contents).map_err(|e| ConfigError::Parse {
             path: path.to_path_buf(),
             message: e.message().to_string(),
-        })
+        })?;
+        for section in [Section::Jira, Section::Confluence, Section::Bitbucket] {
+            if let Some(scope) = &config.section(section).scope {
+                scope
+                    .validate(section.name())
+                    .map_err(|message| ConfigError::Parse {
+                        path: path.to_path_buf(),
+                        message,
+                    })?;
+            }
+        }
+        Ok(config)
     }
 
     pub fn section(&self, section: Section) -> &ProductConfig {
@@ -229,6 +301,11 @@ impl Config {
             base_url,
             credentials: Credentials { username, password },
             ca_cert: ca_cert.map(Path::to_path_buf).or_else(|| s.ca_cert.clone()),
+            scope: match &s.scope {
+                Some(scope) => Scope::restricted(scope.clone()),
+                None => Scope::unrestricted(),
+            },
+            log: self.log.file()?,
         })
     }
 }
@@ -395,6 +472,68 @@ base_url = "https://bitbucket.example.com"
         let err = parse("[bamboo]\nbase_url = \"https://bamboo.example.com\"").unwrap_err();
         assert!(matches!(err, ConfigError::Parse { .. }));
         assert!(err.to_string().contains("bamboo"), "{err}");
+    }
+
+    #[test]
+    fn each_product_has_its_own_scope() {
+        let cfg = format!(
+            "{FULL}\n[jira.scope]\nprojects = [\"ABC\"]\nmax_results = 50\n\
+             \n[bitbucket.scope]\nrepos = [\"PROJ/*\"]\nallow_raw = true\n"
+        );
+        let jira = resolve(&cfg, Section::Jira).unwrap().scope;
+        assert!(jira.is_restricted());
+        assert!(jira.allows_jira_project("ABC") && !jira.allows_jira_project("XYZ"));
+        assert_eq!(jira.max_results(), Some(50));
+
+        let bitbucket = resolve(&cfg, Section::Bitbucket).unwrap().scope;
+        assert!(bitbucket.allows_bitbucket_repo("PROJ", "any"));
+        assert!(!bitbucket.allows_bitbucket_repo("HR", "x"));
+        assert_eq!(
+            bitbucket.max_results(),
+            Some(crate::scope::DEFAULT_MAX_RESULTS)
+        );
+
+        // Confluence has no scope table, so it isn't restricted.
+        let confluence = resolve(&cfg, Section::Confluence).unwrap().scope;
+        assert!(!confluence.is_restricted());
+        assert!(confluence.allows_confluence_space("ANY"));
+    }
+
+    #[test]
+    fn bad_scope_values_are_errors() {
+        let err = parse("[bitbucket.scope]\nrepos = [\"PROJ\"]").unwrap_err();
+        assert!(err.to_string().contains("PROJECT/repo"), "{err}");
+        let err = parse("[jira.scope]\nspaces = [\"DEV\"]").unwrap_err();
+        assert!(
+            err.to_string().contains("[jira.scope] takes `projects`"),
+            "{err}"
+        );
+        let err = parse("[jira.scope]\nproject = [\"ABC\"]").unwrap_err();
+        assert!(err.to_string().contains("project"), "{err}");
+        assert!(parse("[confluence.scope]\nmax_results = 0").is_err());
+        // The old top-level [scope] table is no longer accepted.
+        assert!(parse("[scope]\njira_projects = [\"ABC\"]").is_err());
+    }
+
+    #[test]
+    fn log_defaults_on_in_home() {
+        let r = resolve(FULL, Section::Jira).unwrap();
+        let path = r.log.expect("logging is on by default");
+        assert!(path.ends_with(DEFAULT_LOG_PATH));
+    }
+
+    #[test]
+    fn log_path_and_switch() {
+        let off = format!("{FULL}\n[log]\nenabled = false\n");
+        assert_eq!(resolve(&off, Section::Jira).unwrap().log, None);
+        let custom = format!("{FULL}\n[log]\npath = \"/var/log/atl.log\"\n");
+        assert_eq!(
+            resolve(&custom, Section::Jira).unwrap().log,
+            Some(PathBuf::from("/var/log/atl.log"))
+        );
+        let home = format!("{FULL}\n[log]\npath = \"~/atl.log\"\n");
+        let path = resolve(&home, Section::Jira).unwrap().log.unwrap();
+        assert!(path.is_absolute() && path.ends_with("atl.log"), "{path:?}");
     }
 
     #[test]

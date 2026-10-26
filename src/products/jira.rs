@@ -3,8 +3,11 @@
 use anyhow::Result;
 use clap::Subcommand;
 
+use clap::ValueEnum;
+
 use super::{ListGet, RawArgs};
-use crate::request::{ApiRequest, PageArgs, PageStyle, seg};
+use crate::request::{ApiRequest, Guard, PageArgs, PageStyle, seg};
+use crate::scope::{IssueQuery, jql_string};
 
 const API: &str = "/rest/api/2";
 
@@ -17,20 +20,6 @@ pub enum JiraCommand {
     /// Issues and their sub-resources.
     #[command(subcommand)]
     Issue(IssueCmd),
-    /// Search for issues with JQL.
-    Search {
-        /// JQL query, e.g. `project = ABC AND status = Open`.
-        #[arg(long)]
-        jql: String,
-        /// Comma-separated fields to return (default: navigable fields).
-        #[arg(long)]
-        fields: Option<String>,
-        /// Comma-separated entities to expand, e.g. `changelog`.
-        #[arg(long)]
-        expand: Option<String>,
-        #[command(flatten)]
-        page: PageArgs,
-    },
     /// Projects and their components, versions, statuses and roles.
     #[command(subcommand)]
     Project(ProjectCmd),
@@ -70,6 +59,8 @@ pub enum JiraCommand {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum IssueCmd {
+    /// List issues, filtered by project, people, status, type and dates.
+    List(IssueListArgs),
     /// Get an issue by key or id.
     Get {
         /// Issue key or id, e.g. `ABC-123`.
@@ -113,6 +104,134 @@ pub enum IssueCmd {
         /// Issue key or id, e.g. `ABC-123`.
         key: String,
     },
+}
+
+/// Fixed filters for `jira issue list`. There is no free-form JQL: the CLI
+/// builds the query itself, which keeps it inside the allowed projects.
+#[derive(Debug, Clone, clap::Args)]
+pub struct IssueListArgs {
+    /// Only issues in this project key, e.g. `ABC`. Repeat for several.
+    #[arg(long = "project", value_name = "KEY", value_parser = parse_project_key)]
+    pub projects: Vec<String>,
+    /// Only issues assigned to this username, or `me`.
+    #[arg(long, value_name = "USER")]
+    pub assignee: Option<String>,
+    /// Only issues reported by this username, or `me`.
+    #[arg(long, value_name = "USER")]
+    pub reporter: Option<String>,
+    /// Only issues with this status, e.g. `In Progress`. Repeat for several.
+    #[arg(long = "status", value_name = "STATUS")]
+    pub statuses: Vec<String>,
+    /// Only issues of this type, e.g. `Bug`. Repeat for several.
+    #[arg(long = "type", value_name = "TYPE")]
+    pub types: Vec<String>,
+    /// Only unresolved issues.
+    #[arg(long)]
+    pub open: bool,
+    /// Only issues updated within this period: a number and `m`, `h`, `d` or
+    /// `w`, e.g. `7d`.
+    #[arg(long, value_name = "PERIOD", value_parser = parse_period)]
+    pub updated_since: Option<String>,
+    /// Only issues created within this period, e.g. `30d`.
+    #[arg(long, value_name = "PERIOD", value_parser = parse_period)]
+    pub created_since: Option<String>,
+    /// Sort order (newest or highest first, except `key`).
+    #[arg(long, value_enum, default_value = "updated")]
+    pub order_by: IssueOrder,
+    /// Comma-separated fields to return, e.g. `summary,status,assignee`.
+    #[arg(long)]
+    pub fields: Option<String>,
+    /// Comma-separated entities to expand, e.g. `changelog`.
+    #[arg(long)]
+    pub expand: Option<String>,
+    #[command(flatten)]
+    pub page: PageArgs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum IssueOrder {
+    Updated,
+    Created,
+    Priority,
+    Key,
+}
+
+fn parse_project_key(s: &str) -> Result<String, String> {
+    let ok = s.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if ok {
+        Ok(s.to_string())
+    } else {
+        Err(format!("`{s}` is not a project key such as ABC"))
+    }
+}
+
+fn parse_period(s: &str) -> Result<String, String> {
+    let (number, unit) = s.split_at(s.len().saturating_sub(1));
+    if !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit())
+        && matches!(unit, "m" | "h" | "d" | "w")
+    {
+        Ok(s.to_string())
+    } else {
+        Err(format!("`{s}` is not a period such as 30m, 12h, 7d or 2w"))
+    }
+}
+
+/// `currentUser()` for `me`, otherwise a quoted username.
+fn jql_user(user: &str) -> String {
+    if user.eq_ignore_ascii_case("me") {
+        "currentUser()".into()
+    } else {
+        jql_string(user)
+    }
+}
+
+fn jql_list(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|v| jql_string(v))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+impl IssueListArgs {
+    /// The query, minus the project clause, which the scope check adds.
+    pub fn query(&self) -> IssueQuery {
+        let mut clauses = Vec::new();
+        if let Some(user) = &self.assignee {
+            clauses.push(format!("assignee = {}", jql_user(user)));
+        }
+        if let Some(user) = &self.reporter {
+            clauses.push(format!("reporter = {}", jql_user(user)));
+        }
+        if !self.statuses.is_empty() {
+            clauses.push(format!("status in ({})", jql_list(&self.statuses)));
+        }
+        if !self.types.is_empty() {
+            clauses.push(format!("issuetype in ({})", jql_list(&self.types)));
+        }
+        if self.open {
+            clauses.push("resolution = Unresolved".into());
+        }
+        if let Some(period) = &self.updated_since {
+            clauses.push(format!("updated >= -{period}"));
+        }
+        if let Some(period) = &self.created_since {
+            clauses.push(format!("created >= -{period}"));
+        }
+        let order_by = match self.order_by {
+            IssueOrder::Updated => "updated DESC",
+            IssueOrder::Created => "created DESC",
+            IssueOrder::Priority => "priority DESC",
+            IssueOrder::Key => "key ASC",
+        };
+        IssueQuery {
+            projects: self.projects.clone(),
+            clauses,
+            order_by: order_by.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -236,17 +355,24 @@ impl JiraCommand {
             ServerInfo => ApiRequest::get(p("/serverInfo")),
             Myself => ApiRequest::get(p("/myself")),
             Issue(cmd) => cmd.to_request(),
-            Search {
-                jql,
-                fields,
-                expand,
-                page,
-            } => ApiRequest::get(p("/search"))
-                .param("jql", jql)
-                .opt("fields", fields.as_ref())
-                .opt("expand", expand.as_ref())
-                .paged(PageStyle::Jira, page),
             Project(cmd) => cmd.to_request(),
+            // Users, groups, filters and dashboards span the whole instance.
+            User(_) | Group(_) | Filter(_) | Dashboard(_) => {
+                self.instance_request().guard(Guard::Instance)
+            }
+            Field(FieldCmd::List) => ApiRequest::get(p("/field")),
+            IssueType(cmd) => cmd.to_request(&p("/issuetype")),
+            IssueLinkType(cmd) => cmd.to_request(&p("/issueLinkType")),
+            Priority(cmd) => cmd.to_request(&p("/priority")),
+            Status(cmd) => cmd.to_request(&p("/status")),
+            Resolution(cmd) => cmd.to_request(&p("/resolution")),
+            Raw(raw) => return raw.to_request(),
+        })
+    }
+
+    fn instance_request(&self) -> ApiRequest {
+        use JiraCommand::*;
+        match self {
             User(cmd) => match cmd {
                 UserCmd::Get { username } => {
                     ApiRequest::get(p("/user")).param("username", username)
@@ -273,12 +399,6 @@ impl JiraCommand {
                     ApiRequest::get(p("/groups/picker")).param("query", query)
                 }
             },
-            Field(FieldCmd::List) => ApiRequest::get(p("/field")),
-            IssueType(cmd) => cmd.to_request(&p("/issuetype")),
-            IssueLinkType(cmd) => cmd.to_request(&p("/issueLinkType")),
-            Priority(cmd) => cmd.to_request(&p("/priority")),
-            Status(cmd) => cmd.to_request(&p("/status")),
-            Resolution(cmd) => cmd.to_request(&p("/resolution")),
             Filter(cmd) => match cmd {
                 FilterCmd::Get { id } => ApiRequest::get(p(&format!("/filter/{}", seg(id)))),
                 FilterCmd::Favourite => ApiRequest::get(p("/filter/favourite")),
@@ -289,48 +409,55 @@ impl JiraCommand {
                     .paged(PageStyle::Jira, page),
                 DashboardCmd::Get { id } => ApiRequest::get(p(&format!("/dashboard/{}", seg(id)))),
             },
-            Raw(raw) => return raw.to_request(),
-        })
+            _ => unreachable!("only instance-wide commands"),
+        }
     }
 }
 
 impl IssueCmd {
     fn to_request(&self) -> ApiRequest {
-        let issue = |key: &str, rest: &str| p(&format!("/issue/{}{rest}", seg(key)));
+        let issue = |key: &str, rest: &str| {
+            ApiRequest::get(p(&format!("/issue/{}{rest}", seg(key))))
+                .guard(Guard::JiraIssue(key.to_string()))
+        };
         match self {
+            IssueCmd::List(args) => ApiRequest::get(p("/search"))
+                .opt("fields", args.fields.as_ref())
+                .opt("expand", args.expand.as_ref())
+                .paged(PageStyle::Jira, &args.page)
+                .guard(Guard::JiraIssueSearch(args.query())),
             IssueCmd::Get {
                 key,
                 fields,
                 expand,
-            } => ApiRequest::get(issue(key, ""))
+            } => issue(key, "")
                 .opt("fields", fields.as_ref())
                 .opt("expand", expand.as_ref()),
-            IssueCmd::Comments { key, page } => {
-                ApiRequest::get(issue(key, "/comment")).paged(PageStyle::Jira, page)
-            }
-            IssueCmd::Worklogs { key } => ApiRequest::get(issue(key, "/worklog")),
-            IssueCmd::Transitions { key } => ApiRequest::get(issue(key, "/transitions")),
-            IssueCmd::Watchers { key } => ApiRequest::get(issue(key, "/watchers")),
-            IssueCmd::Votes { key } => ApiRequest::get(issue(key, "/votes")),
-            IssueCmd::RemoteLinks { key } => ApiRequest::get(issue(key, "/remotelink")),
+            IssueCmd::Comments { key, page } => issue(key, "/comment").paged(PageStyle::Jira, page),
+            IssueCmd::Worklogs { key } => issue(key, "/worklog"),
+            IssueCmd::Transitions { key } => issue(key, "/transitions"),
+            IssueCmd::Watchers { key } => issue(key, "/watchers"),
+            IssueCmd::Votes { key } => issue(key, "/votes"),
+            IssueCmd::RemoteLinks { key } => issue(key, "/remotelink"),
         }
     }
 }
 
 impl ProjectCmd {
     fn to_request(&self) -> ApiRequest {
-        let project = |key: &str, rest: &str| p(&format!("/project/{}{rest}", seg(key)));
+        let project = |key: &str, rest: &str| {
+            ApiRequest::get(p(&format!("/project/{}{rest}", seg(key))))
+                .guard(Guard::JiraProject(key.to_string()))
+        };
         match self {
-            ProjectCmd::List { expand } => {
-                ApiRequest::get(p("/project")).opt("expand", expand.as_ref())
-            }
-            ProjectCmd::Get { key, expand } => {
-                ApiRequest::get(project(key, "")).opt("expand", expand.as_ref())
-            }
-            ProjectCmd::Components { key } => ApiRequest::get(project(key, "/components")),
-            ProjectCmd::Versions { key } => ApiRequest::get(project(key, "/versions")),
-            ProjectCmd::Statuses { key } => ApiRequest::get(project(key, "/statuses")),
-            ProjectCmd::Roles { key } => ApiRequest::get(project(key, "/role")),
+            ProjectCmd::List { expand } => ApiRequest::get(p("/project"))
+                .opt("expand", expand.as_ref())
+                .guard(Guard::JiraProjectList),
+            ProjectCmd::Get { key, expand } => project(key, "").opt("expand", expand.as_ref()),
+            ProjectCmd::Components { key } => project(key, "/components"),
+            ProjectCmd::Versions { key } => project(key, "/versions"),
+            ProjectCmd::Statuses { key } => project(key, "/statuses"),
+            ProjectCmd::Roles { key } => project(key, "/role"),
         }
     }
 }
@@ -406,31 +533,82 @@ mod tests {
     }
 
     #[test]
-    fn search_paging() {
+    fn issue_list_builds_a_fixed_query() {
         let r = req(&[
-            "search",
-            "--jql",
-            "project = ABC",
+            "issue",
+            "list",
+            "--project",
+            "ABC",
+            "--assignee",
+            "me",
+            "--status",
+            "In Progress",
+            "--status",
+            "To Do",
+            "--type",
+            "Bug",
+            "--open",
+            "--updated-since",
+            "7d",
+            "--order-by",
+            "priority",
             "--start",
             "10",
             "--limit",
             "5",
         ]);
         assert_eq!(r.path, "/rest/api/2/search");
+        // The JQL itself is added by the scope check, which knows the projects.
+        assert_eq!(q(&r), kv(&[("startAt", "10"), ("maxResults", "5")]));
+        let crate::request::Guard::JiraIssueSearch(query) = r.guard else {
+            panic!("expected an issue search guard, got {:?}", r.guard);
+        };
+        assert_eq!(query.projects, vec!["ABC".to_string()]);
         assert_eq!(
-            q(&r),
-            kv(&[
-                ("jql", "project = ABC"),
-                ("startAt", "10"),
-                ("maxResults", "5")
-            ])
+            query.jql(&query.projects),
+            "project in (\"ABC\") AND assignee = currentUser() AND \
+             status in (\"In Progress\", \"To Do\") AND issuetype in (\"Bug\") AND \
+             resolution = Unresolved AND updated >= -7d ORDER BY priority DESC"
         );
     }
 
     #[test]
-    fn search_all_sets_paging_flag() {
-        let r = req(&["search", "--jql", "x", "--all"]);
-        assert!(r.paging.unwrap().all);
+    fn issue_list_quotes_user_values() {
+        let r = req(&[
+            "issue",
+            "list",
+            "--reporter",
+            "o\"brien",
+            "--created-since",
+            "2w",
+        ]);
+        let crate::request::Guard::JiraIssueSearch(query) = r.guard else {
+            panic!("expected an issue search guard");
+        };
+        assert_eq!(
+            query.jql(&[]),
+            "reporter = \"o\\\"brien\" AND created >= -2w ORDER BY updated DESC"
+        );
+    }
+
+    #[test]
+    fn issue_list_rejects_bad_values() {
+        use clap::Parser;
+        for args in [
+            vec!["--project", "ABC) OR project = XYZ"],
+            vec!["--updated-since", "7 days"],
+            vec!["--updated-since", "d"],
+        ] {
+            let mut argv = vec!["atlassian", "jira", "issue", "list"];
+            argv.extend(args.iter().copied());
+            assert!(Cli::try_parse_from(&argv).is_err(), "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn search_command_is_gone() {
+        use clap::Parser;
+        assert!(Cli::try_parse_from(["atlassian", "jira", "search", "--jql", "x"]).is_err());
     }
 
     #[test]

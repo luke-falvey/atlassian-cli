@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::{Subcommand, ValueEnum};
 
 use super::RawArgs;
-use crate::request::{ApiRequest, PageArgs, PageStyle, seg};
+use crate::request::{ApiRequest, Guard, PageArgs, PageStyle, seg};
 
 const API: &str = "/rest/api";
 
@@ -16,17 +16,6 @@ pub enum ConfluenceCommand {
     /// Pages, blog posts, comments and attachments.
     #[command(subcommand)]
     Content(ContentCmd),
-    /// Search content with CQL.
-    Search {
-        /// CQL query, e.g. `type = page AND space = DEV`.
-        #[arg(long)]
-        cql: String,
-        /// Comma-separated properties to expand.
-        #[arg(long)]
-        expand: Option<String>,
-        #[command(flatten)]
-        page: PageArgs,
-    },
     /// Users.
     #[command(subcommand)]
     User(UserCmd),
@@ -236,7 +225,7 @@ fn p(rest: &str) -> String {
 impl ConfluenceCommand {
     pub fn to_request(&self) -> Result<ApiRequest> {
         use PageStyle::Confluence as C;
-        Ok(match self {
+        let req = match self {
             ConfluenceCommand::Space(cmd) => match cmd {
                 SpaceCmd::List {
                     space_type,
@@ -270,12 +259,6 @@ impl ConfluenceCommand {
                 }
             },
             ConfluenceCommand::Content(cmd) => cmd.to_request(),
-            ConfluenceCommand::Search { cql, expand, page } => {
-                ApiRequest::get(p("/content/search"))
-                    .param("cql", cql)
-                    .opt("expand", expand.as_ref())
-                    .paged(C, page)
-            }
             ConfluenceCommand::User(cmd) => match cmd {
                 UserCmd::Current => ApiRequest::get(p("/user/current")),
                 UserCmd::Get { username, key } => ApiRequest::get(p("/user"))
@@ -289,7 +272,34 @@ impl ConfluenceCommand {
                 }
             },
             ConfluenceCommand::Raw(raw) => return raw.to_request(),
-        })
+        };
+        Ok(req.guard(self.guard()))
+    }
+
+    /// What the command touches, for the scope check.
+    fn guard(&self) -> Guard {
+        match self {
+            ConfluenceCommand::Space(cmd) => match cmd {
+                SpaceCmd::List { keys, .. } => Guard::ConfluenceSpaceList(keys.clone()),
+                SpaceCmd::Get { key, .. } | SpaceCmd::Content { key, .. } => {
+                    Guard::ConfluenceSpace(key.clone())
+                }
+            },
+            ConfluenceCommand::Content(cmd) => match cmd {
+                ContentCmd::List { space, .. } => Guard::ConfluenceContentList(space.clone()),
+                ContentCmd::Get { id, .. }
+                | ContentCmd::Children { id, .. }
+                | ContentCmd::Descendants { id, .. }
+                | ContentCmd::Attachments { id, .. }
+                | ContentCmd::Comments { id, .. }
+                | ContentCmd::Labels { id, .. }
+                | ContentCmd::History { id, .. } => Guard::ConfluenceContent(id.clone()),
+            },
+            ConfluenceCommand::User(UserCmd::Current) => Guard::Open,
+            // Looking up other users and groups spans the whole instance.
+            ConfluenceCommand::User(_) | ConfluenceCommand::Group(_) => Guard::Instance,
+            ConfluenceCommand::Raw(_) => Guard::Raw,
+        }
     }
 }
 
@@ -459,16 +469,27 @@ mod tests {
     }
 
     #[test]
-    fn search_uses_cql() {
-        let r = req(&["search", "--cql", "type = page", "--start", "25"]);
-        assert_eq!(r.path, "/rest/api/content/search");
+    fn search_command_is_gone() {
+        assert!(Cli::try_parse_from(["atlassian", "confluence", "search", "--cql", "x"]).is_err());
+    }
+
+    #[test]
+    fn guards() {
+        use crate::request::Guard;
         assert_eq!(
-            r.first_query(),
-            vec![
-                ("cql".into(), "type = page".into()),
-                ("start".into(), "25".into())
-            ]
+            req(&["content", "get", "123"]).guard,
+            Guard::ConfluenceContent("123".into())
         );
+        assert_eq!(
+            req(&["content", "list", "--space", "DEV"]).guard,
+            Guard::ConfluenceContentList(Some("DEV".into()))
+        );
+        assert_eq!(
+            req(&["space", "get", "DEV"]).guard,
+            Guard::ConfluenceSpace("DEV".into())
+        );
+        assert_eq!(req(&["user", "current"]).guard, Guard::Open);
+        assert_eq!(req(&["group", "list"]).guard, Guard::Instance);
     }
 
     #[test]
