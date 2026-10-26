@@ -13,7 +13,6 @@ atlassian <product> <resource> <action> [args]
 | Jira Software (Agile) | `agile` (alias `jira-software`) | `/rest/agile/1.0` |
 | Confluence   | `confluence` | `/rest/api`         |
 | Bitbucket    | `bitbucket`  | `/rest/api/latest`  |
-| Bamboo       | `bamboo`     | `/rest/api/latest`  |
 
 This first version only **reads**. The HTTP client has no method other than
 `GET`, and a test checks that no other method is ever sent.
@@ -45,18 +44,15 @@ password = "other-password"
 [bitbucket]
 base_url = "https://bitbucket.example.com"
 ca_cert = "/etc/ssl/corp-ca.pem"                   # optional extra CA certificate
-
-[bamboo]
-base_url = "https://bamboo.example.com"
 ```
 
 ```sh
 chmod 600 ~/.atlassian.toml
 ```
 
-- **Sections:** each product reads its own section: `[jira]`, `[confluence]`,
-  `[bitbucket]` or `[bamboo]`. `agile` uses `[jira]`, because Jira serves the
-  Jira Software API.
+- **Sections:** each product reads its own section: `[jira]`, `[confluence]`
+  or `[bitbucket]`. `agile` uses `[jira]`, because Jira serves the Jira
+  Software API.
 - **Authentication:** only HTTP Basic auth is supported. A section's
   `username`/`password` override the top-level ones.
 - **Unknown keys:** a misspelled key is an error, not silently ignored.
@@ -83,7 +79,6 @@ atlassian confluence search --cql 'space = DEV AND type = page' --limit 10
 atlassian confluence content get 123456 --expand body.storage,version
 atlassian bitbucket pull-request list PROJ my-repo --state OPEN
 atlassian bitbucket file content PROJ my-repo README.md --at refs/heads/main
-atlassian bamboo result latest PROJ-PLAN
 
 # Any GET endpoint that has no command yet:
 atlassian jira raw /rest/api/2/application-properties -q key=jira.title
@@ -101,9 +96,8 @@ as-is.
 ### Pagination
 
 List commands take `--start` and `--limit`, mapped onto each product's own
-parameters (`startAt`/`maxResults`, `start`/`limit`, `start-index`/`max-result`).
-`--all` follows every page and prints the items as one JSON array. Bamboo
-doesn't support `--all`.
+parameters (`startAt`/`maxResults` or `start`/`limit`). `--all` follows every
+page and prints the items as one JSON array.
 
 ## Commands
 
@@ -113,7 +107,6 @@ doesn't support `--all`.
 | `agile` | `board` (list, get, configuration, sprints, issues, backlog, epics), `sprint` (get, issues), `epic` (get, issues), `raw` |
 | `confluence` | `space` (list, get, content), `content` (list, get, children, descendants, attachments, comments, labels, history), `search`, `user` (current, get), `group` (list, members), `raw` |
 | `bitbucket` | `application-properties`, `project`, `repo`, `branch` (list, default), `tag`, `commit` (list, get, changes), `pull-request` (list, get, activities, changes, commits), `file` (list, browse, content), `user`, `group`, `raw` |
-| `bamboo` | `info`, `server`, `current-user`, `project`, `plan` (list, get, branches), `result` (list, get, latest), `deploy` (project list/get, environment-results), `queue`, `agent`, `raw` |
 
 ## Development
 
@@ -129,8 +122,8 @@ cargo test
 |-------|------|
 | `src/**` unit tests | Credentials parsing, URL and query building for every command, pagination logic, error messages. |
 | `tests/mock_harness.rs` | Tests the OpenAPI mock server itself against small fixture specs in `tests/fixtures/`. |
-| `tests/cli.rs` | Runs the real binary against hand-built wiremock servers: auth, env vars, `--all` for each paging style, `raw`, text output, errors, and that only `GET` is ever sent. |
-| `tests/{jira,agile,confluence,bitbucket,bamboo}.rs` | Runs every command against a mock server built from the product's OpenAPI spec in `specs/`. |
+| `tests/cli.rs` | Runs the real binary against hand-built wiremock servers: auth, the config file, `--all` for each paging style, `raw`, text output, errors, and that only `GET` is ever sent. |
+| `tests/{jira,agile,confluence,bitbucket}.rs` | Runs every command against a mock server built from the product's OpenAPI spec in `specs/`. |
 
 The mock server (`tests/support/mod.rs`) reads an OpenAPI 3 or Swagger 2 file
 and registers a route for every `GET` operation. Each route:
@@ -143,9 +136,8 @@ Missing or wrong credentials get `401`, and paths that aren't in the spec get
 `404`. A command passes only if it hits a real endpoint and prints exactly
 what the spec says it returns.
 
-> **Note:** the Jira (9.12.0 and 10.0), Confluence 10.2.15 and Bitbucket 10.2
-> specs are committed. The Bamboo spec isn't yet, so `tests/bamboo.rs` fails. See
-> [`specs/README.md`](specs/README.md) and run `scripts/fetch-specs.sh`.
+The specs are Jira 9.12.0 and 10.0, Confluence 10.2.15 and Bitbucket 10.2. See
+[`specs/README.md`](specs/README.md) for their sources and how to refresh them.
 
 ## Suggested future products
 
@@ -153,6 +145,9 @@ what the spec says it returns.
   organizations (`/rest/servicedeskapi`).
 - **Assets (formerly Insight)**: object schemas, objects, AQL search
   (`/rest/insight/1.0` or `/rest/assets/1.0`).
+- **Bamboo**: plans, build results, deployments (`/rest/api/latest`). Atlassian
+  publishes no OpenAPI spec for it, so its commands would need a hand-written
+  spec to test against.
 - **Crowd**: users, groups, memberships, directories (`/rest/usermanagement/1`).
 - **Fisheye / Crucible**: repositories, changesets, code reviews
   (`/rest-service`, `/rest-service-fe`).

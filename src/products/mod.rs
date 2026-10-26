@@ -2,7 +2,6 @@
 //! (resource → action) whose leaves turn into an [`ApiRequest`].
 
 pub mod agile;
-pub mod bamboo;
 pub mod bitbucket;
 pub mod confluence;
 pub mod jira;

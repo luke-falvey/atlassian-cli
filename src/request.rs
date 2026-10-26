@@ -34,8 +34,6 @@ pub enum PageStyle {
     Confluence,
     /// Bitbucket: `start` / `limit`, `isLastPage` / `nextPageStart` in the body.
     Bitbucket,
-    /// Bamboo: `start-index` / `max-result`. `--all` is not supported.
-    Bamboo,
 }
 
 impl PageStyle {
@@ -43,7 +41,6 @@ impl PageStyle {
         match self {
             PageStyle::Jira => "startAt",
             PageStyle::Confluence | PageStyle::Bitbucket => "start",
-            PageStyle::Bamboo => "start-index",
         }
     }
 
@@ -51,7 +48,6 @@ impl PageStyle {
         match self {
             PageStyle::Jira => "maxResults",
             PageStyle::Confluence | PageStyle::Bitbucket => "limit",
-            PageStyle::Bamboo => "max-result",
         }
     }
 }
@@ -191,8 +187,6 @@ mod tests {
     fn page_param_names_per_style() {
         assert_eq!(PageStyle::Confluence.start_param(), "start");
         assert_eq!(PageStyle::Bitbucket.limit_param(), "limit");
-        assert_eq!(PageStyle::Bamboo.start_param(), "start-index");
-        assert_eq!(PageStyle::Bamboo.limit_param(), "max-result");
     }
 
     #[test]

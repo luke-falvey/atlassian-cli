@@ -16,9 +16,6 @@
 //! [bitbucket]
 //! base_url = "https://bitbucket.example.com"
 //! ca_cert = "/etc/ssl/corp-ca.pem"  # optional extra CA certificate
-//!
-//! [bamboo]
-//! base_url = "https://bamboo.example.com"
 //! ```
 
 use std::fmt;
@@ -36,7 +33,6 @@ pub enum Section {
     Jira,
     Confluence,
     Bitbucket,
-    Bamboo,
 }
 
 impl Section {
@@ -45,7 +41,6 @@ impl Section {
             Section::Jira => "jira",
             Section::Confluence => "confluence",
             Section::Bitbucket => "bitbucket",
-            Section::Bamboo => "bamboo",
         }
     }
 }
@@ -107,8 +102,6 @@ pub struct Config {
     pub confluence: ProductConfig,
     #[serde(default)]
     pub bitbucket: ProductConfig,
-    #[serde(default)]
-    pub bamboo: ProductConfig,
 }
 
 impl fmt::Debug for Config {
@@ -129,7 +122,6 @@ impl fmt::Debug for Config {
             .field("jira", &section(&self.jira))
             .field("confluence", &section(&self.confluence))
             .field("bitbucket", &section(&self.bitbucket))
-            .field("bamboo", &section(&self.bamboo))
             .finish()
     }
 }
@@ -190,7 +182,6 @@ impl Config {
             Section::Jira => &self.jira,
             Section::Confluence => &self.confluence,
             Section::Bitbucket => &self.bitbucket,
-            Section::Bamboo => &self.bamboo,
         }
     }
 
@@ -288,9 +279,6 @@ ca_cert = "/etc/ca.pem"
 
 [bitbucket]
 base_url = "https://bitbucket.example.com"
-
-[bamboo]
-base_url = "https://bamboo.example.com"
 "#;
 
     #[test]
@@ -300,8 +288,8 @@ base_url = "https://bamboo.example.com"
         assert_eq!(r.credentials.username, "alice");
         assert_eq!(r.credentials.password, "pa:ss \"word\"");
         assert_eq!(r.ca_cert, None);
-        let r = resolve(FULL, Section::Bamboo).unwrap();
-        assert_eq!(r.base_url, "https://bamboo.example.com");
+        let r = resolve(FULL, Section::Bitbucket).unwrap();
+        assert_eq!(r.base_url, "https://bitbucket.example.com");
         assert_eq!(r.credentials.username, "alice");
     }
 
@@ -400,6 +388,13 @@ base_url = "https://bamboo.example.com"
             parse("[jira-software]\n"),
             Err(ConfigError::Parse { .. })
         ));
+    }
+
+    #[test]
+    fn removed_bamboo_section_is_rejected() {
+        let err = parse("[bamboo]\nbase_url = \"https://bamboo.example.com\"").unwrap_err();
+        assert!(matches!(err, ConfigError::Parse { .. }));
+        assert!(err.to_string().contains("bamboo"), "{err}");
     }
 
     #[test]

@@ -127,18 +127,22 @@ async fn wrong_credentials_are_401() {
 async fn swagger2_specs_are_supported() {
     let mock = SpecMock::start(&fixture_path("swagger2-sample.json")).await;
     let config = TestConfig::new();
-    let out = run_cli(&mock.uri(), &config, &["bamboo", "info"])
-        .await
-        .unwrap();
+    let out = run_cli(
+        &mock.uri(),
+        &config,
+        &["bitbucket", "application-properties"],
+    )
+    .await
+    .unwrap();
     assert_eq!(out, Output::Json(json!({"version": "9.0.0"})));
     let out = run_cli(
         &mock.uri(),
         &config,
-        &["bamboo", "plan", "get", "PROJ-PLAN"],
+        &["bitbucket", "project", "get", "PROJ"],
     )
     .await
     .unwrap();
-    assert_eq!(out, Output::Json(json!({"key": "string", "enabled": true})));
+    assert_eq!(out, Output::Json(json!({"key": "string", "public": true})));
 }
 
 #[test]

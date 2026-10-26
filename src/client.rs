@@ -119,9 +119,6 @@ impl Client {
         style: PageStyle,
         limit: Option<u64>,
     ) -> Result<Output> {
-        if style == PageStyle::Bamboo {
-            bail!("--all is not supported for Bamboo; use --start and --limit");
-        }
         let mut items = Vec::new();
         let mut start = 0u64;
         for _ in 0..MAX_PAGES {
@@ -193,7 +190,6 @@ pub fn next_start(style: PageStyle, page: &Value, start: u64, count: u64) -> Opt
             }
             num("nextPageStart")
         }
-        PageStyle::Bamboo => None,
     }
 }
 
@@ -225,7 +221,7 @@ pub fn error_detail(body: &str) -> String {
         ),
         _ => {}
     }
-    // Confluence and Bamboo: {"message": "..."}
+    // Confluence: {"message": "..."}
     if let Some(m) = v.get("message").and_then(Value::as_str) {
         msgs.push(m.to_string());
     }

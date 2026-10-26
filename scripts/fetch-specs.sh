@@ -2,7 +2,7 @@
 # Download the official Atlassian Data Center OpenAPI specs into specs/.
 #
 # The URLs below are the best-known locations on dac-static.atlassian.com and
-# are confirmed for jira, confluence and bitbucket; the bamboo one is a guess.
+# are confirmed for jira, confluence and bitbucket.
 # specs/jira-9.12.json is generated separately; see specs/README.md.
 #
 # If one fails, find the "Download OpenAPI spec" link on the product's REST API
@@ -21,11 +21,10 @@ declare -A URLS=(
   [jira]="${JIRA_SPEC_URL:-https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_10000_swagger.v3.json}"
   [confluence]="${CONFLUENCE_SPEC_URL:-https://dac-static.atlassian.com/server/confluence/10.2.15.swagger.v3.json}"
   [bitbucket]="${BITBUCKET_SPEC_URL:-https://dac-static.atlassian.com/server/bitbucket/10.2.swagger.v3.json}"
-  [bamboo]="${BAMBOO_SPEC_URL:-https://dac-static.atlassian.com/server/bamboo/swagger.v3.json}"
 )
 
 products=("$@")
-[ ${#products[@]} -eq 0 ] && products=(jira confluence bitbucket bamboo)
+[ ${#products[@]} -eq 0 ] && products=(jira confluence bitbucket)
 
 failed=0
 for product in "${products[@]}"; do

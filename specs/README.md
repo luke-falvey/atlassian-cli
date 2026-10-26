@@ -10,7 +10,6 @@ command whose URL isn't in the spec fails its test.
 | `jira-9.12.json` | Jira DC (`/rest/api/2`), GET operations only | 9.12.0 | Converted from https://docs.atlassian.com/software/jira/docs/api/REST/9.12.0/ by `scripts/jira-docs-to-openapi.py` |
 | `confluence.json` | Confluence DC | 10.2.15 | https://dac-static.atlassian.com/server/confluence/10.2.15.swagger.v3.json (page: https://developer.atlassian.com/server/confluence/rest/v10215/) |
 | `bitbucket.json` | Bitbucket DC | 10.2 | https://dac-static.atlassian.com/server/bitbucket/10.2.swagger.v3.json (page: https://developer.atlassian.com/server/bitbucket/rest/v1002/) |
-| `bamboo.json` | Bamboo DC | _missing_ | _not yet found_ |
 
 ## Notes
 
@@ -35,7 +34,6 @@ command whose URL isn't in the spec fails its test.
   which `scripts/fetch-specs.sh` runs on every download. They are only
   documentation samples, but they match real token formats, so GitHub push
   protection rejects them.
-- The Bamboo spec isn't committed yet, so `tests/bamboo.rs` fails until it is.
 
 ## Adding or refreshing a spec
 
@@ -49,6 +47,5 @@ fails, the spec has diverged from the CLI. Fix the command, or remove it if
 the endpoint no longer exists.
 
 Both OpenAPI 3 and Swagger 2 files are supported. If Atlassian doesn't publish
-an OpenAPI file for a product (Bamboo's REST docs have historically been WADL
-only), write a small OpenAPI 3 file covering the endpoints the CLI uses. Mark
+an OpenAPI file for a product, write a small OpenAPI 3 file covering the endpoints the CLI uses. Mark
 it as **unofficial** in the table above.

@@ -7,7 +7,6 @@ use clap::{Parser, Subcommand};
 
 use crate::config::Section;
 use crate::products::agile::AgileCommand;
-use crate::products::bamboo::BambooCommand;
 use crate::products::bitbucket::BitbucketCommand;
 use crate::products::confluence::ConfluenceCommand;
 use crate::products::jira::JiraCommand;
@@ -16,8 +15,8 @@ use crate::request::ApiRequest;
 /// Read-only command line client for Atlassian Data Center products.
 ///
 /// Server URLs and Basic-auth credentials are read from ~/.atlassian.toml,
-/// with one section per product: [jira] (also used by agile), [confluence],
-/// [bitbucket] and [bamboo].
+/// with one section per product: [jira] (also used by agile), [confluence]
+/// and [bitbucket].
 #[derive(Debug, Parser)]
 #[command(name = "atlassian", version)]
 pub struct Cli {
@@ -59,9 +58,6 @@ pub enum Product {
     /// Bitbucket (projects, repositories, pull requests, ...).
     #[command(subcommand)]
     Bitbucket(BitbucketCommand),
-    /// Bamboo (plans, build results, deployments, ...).
-    #[command(subcommand)]
-    Bamboo(BambooCommand),
 }
 
 impl Product {
@@ -71,7 +67,6 @@ impl Product {
             Product::Jira(_) | Product::Agile(_) => Section::Jira,
             Product::Confluence(_) => Section::Confluence,
             Product::Bitbucket(_) => Section::Bitbucket,
-            Product::Bamboo(_) => Section::Bamboo,
         }
     }
 
@@ -81,7 +76,6 @@ impl Product {
             Product::Agile(c) => c.to_request(),
             Product::Confluence(c) => c.to_request(),
             Product::Bitbucket(c) => c.to_request(),
-            Product::Bamboo(c) => c.to_request(),
         }
     }
 }
@@ -106,8 +100,8 @@ mod tests {
     fn config_sections() {
         let cli = Cli::try_parse_from(["atlassian", "agile", "board", "get", "1"]).unwrap();
         assert_eq!(cli.product.section(), Section::Jira);
-        let cli = Cli::try_parse_from(["atlassian", "bamboo", "info"]).unwrap();
-        assert_eq!(cli.product.section(), Section::Bamboo);
+        let cli = Cli::try_parse_from(["atlassian", "bitbucket", "project", "list"]).unwrap();
+        assert_eq!(cli.product.section(), Section::Bitbucket);
     }
 
     #[test]

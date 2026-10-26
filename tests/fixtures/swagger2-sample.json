@@ -6,30 +6,30 @@
   },
   "basePath": "/rest/api/latest",
   "paths": {
-    "/info": {
+    "/application-properties": {
       "get": {
         "responses": {
           "200": {
-            "description": "Server info",
+            "description": "Application properties",
             "examples": { "application/json": { "version": "9.0.0" } }
           }
         }
       }
     },
-    "/plan/{key}": {
+    "/projects/{projectKey}": {
       "get": {
         "responses": {
-          "200": { "description": "A plan", "schema": { "$ref": "#/definitions/Plan" } }
+          "200": { "description": "A project", "schema": { "$ref": "#/definitions/Project" } }
         }
       }
     }
   },
   "definitions": {
-    "Plan": {
+    "Project": {
       "type": "object",
       "properties": {
         "key": { "type": "string" },
-        "enabled": { "type": "boolean" }
+        "public": { "type": "boolean" }
       }
     }
   }

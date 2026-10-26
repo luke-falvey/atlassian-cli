@@ -49,7 +49,7 @@ fn help_lists_products() {
             .and(predicate::str::contains("agile"))
             .and(predicate::str::contains("confluence"))
             .and(predicate::str::contains("bitbucket"))
-            .and(predicate::str::contains("bamboo")),
+            .and(predicate::str::contains("bamboo").not()),
     );
 }
 
