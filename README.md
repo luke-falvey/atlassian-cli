@@ -123,8 +123,8 @@ Missing or wrong credentials get `401`, and paths that aren't in the spec get
 `404`. A command passes only if it hits a real endpoint and prints exactly
 what the spec says it returns.
 
-> **Note:** only the Jira spec (which also covers agile) is committed so far.
-> The Confluence, Bitbucket and Bamboo spec tests fail until those specs are added. See
+> **Note:** the Jira (9.12.0 and 10.0), Confluence 10.2.15 and Bitbucket 10.2
+> specs are committed. The Bamboo spec isn't yet, so `tests/bamboo.rs` fails. See
 > [`specs/README.md`](specs/README.md) and run `scripts/fetch-specs.sh`.
 
 ## Suggested future products

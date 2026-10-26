@@ -4,27 +4,38 @@ The test suite builds its mock servers from these files (see
 `tests/support/mod.rs`). Every CLI command is run against the mock, and a
 command whose URL isn't in the spec fails its test.
 
-| File                 | Product                     | Version | Source URL |
-|----------------------|-----------------------------|---------|------------|
-| `jira.json`          | Jira Software Data Center (platform `/rest/api/2` + agile `/rest/agile/1.0`) | 10.0.0 | https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_10000_swagger.v3.json |
-| `confluence.json`    | Confluence Data Center      | _todo_  | _todo_     |
-| `bitbucket.json`     | Bitbucket Data Center       | _todo_  | _todo_     |
-| `bamboo.json`        | Bamboo Data Center          | _todo_  | _todo_     |
+| File | Product | Version | Source |
+|------|---------|---------|--------|
+| `jira.json` | Jira Software DC (`/rest/api/2` + `/rest/agile/1.0`) | 10.0.0 | https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_10000_swagger.v3.json |
+| `jira-9.12.json` | Jira DC (`/rest/api/2`), GET operations only | 9.12.0 | Converted from https://docs.atlassian.com/software/jira/docs/api/REST/9.12.0/ by `scripts/jira-docs-to-openapi.py` |
+| `confluence.json` | Confluence DC | 10.2.15 | https://dac-static.atlassian.com/server/confluence/10.2.15.swagger.v3.json (page: https://developer.atlassian.com/server/confluence/rest/v10215/) |
+| `bitbucket.json` | Bitbucket DC | 10.2 | https://dac-static.atlassian.com/server/bitbucket/10.2.swagger.v3.json (page: https://developer.atlassian.com/server/bitbucket/rest/v1002/) |
+| `bamboo.json` | Bamboo DC | _missing_ | _not yet found_ |
 
-## Status
+## Notes
 
-`jira.json` is vendored and used by both `tests/jira.rs` and `tests/agile.rs`.
-Atlassian publishes OpenAPI files only for Jira 10.0 and later; Jira 9.x
-(e.g. 9.12) is documented only as HTML at docs.atlassian.com, so 10.0.0 is the
-oldest official spec available. Its `/rest/api/2` endpoints used by the CLI
-are unchanged from 9.x.
-
-Known spec quirk: `GET /api/2/group/member` declares `groupname` as a *path*
-parameter although the path has no placeholder. Jira takes it as a query
-parameter, which is what the CLI sends.
-
-The Confluence, Bitbucket and Bamboo specs are not committed yet. Until they
-are, their spec tests fail with a message pointing here.
+- `tests/jira.rs` runs every jira command against both Jira specs.
+  `tests/agile.rs` uses `jira.json`, which also covers the agile API.
+- Jira 9.x has no OpenAPI file. The 9.12.0 reference is a single HTML page, and
+  the WADL it links to returns "NoSuchKey". `scripts/jira-docs-to-openapi.py`
+  turns that page into `jira-9.12.json`, keeping paths, query parameters, the
+  success status and the documented example or schema for each GET operation.
+- The Confluence spec uses its context path (`/confluence`) as the server URL
+  and full `/rest/api/...` paths. The mock passes that context path to the CLI
+  as part of the base URL, as a real user would.
+- Spec quirks that the CLI handles correctly:
+  - Jira 10.0 `GET /api/2/group/member` lists `groupname` as a path parameter,
+    but the path has no placeholder. Jira takes it as a query parameter, which
+    is what the CLI sends.
+  - Some operations (e.g. Bitbucket `browse/{path}` and `raw/{path}`, Jira 9.12
+    `dashboard`) document no response body. For those, the mock checks only the
+    path and parameters.
+- Example credentials (sample access tokens, passwords) in the official specs
+  are replaced with `REDACTED-EXAMPLE` by `scripts/redact-spec-examples.py`,
+  which `scripts/fetch-specs.sh` runs on every download. They are only
+  documentation samples, but they match real token formats, so GitHub push
+  protection rejects them.
+- The Bamboo spec isn't committed yet, so `tests/bamboo.rs` fails until it is.
 
 ## Adding or refreshing a spec
 

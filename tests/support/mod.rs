@@ -105,6 +105,8 @@ impl Operation {
 pub struct SpecMock {
     pub server: MockServer,
     pub operations: Vec<Operation>,
+    /// Context path of the product (e.g. `/confluence`), part of the base URL.
+    pub context_path: String,
 }
 
 impl SpecMock {
@@ -154,11 +156,20 @@ impl SpecMock {
             .mount(&server)
             .await;
 
-        Self { server, operations }
+        Self {
+            server,
+            operations,
+            context_path: context_path(&spec),
+        }
     }
 
     pub fn uri(&self) -> String {
         self.server.uri()
+    }
+
+    /// What a user would pass as `--base-url`: server plus context path.
+    pub fn base_url(&self) -> String {
+        format!("{}{}", self.server.uri(), self.context_path)
     }
 
     /// The operation the mock serves for `path`, mirroring wiremock's
@@ -234,6 +245,21 @@ pub fn base_path(spec: &Value) -> String {
     path.trim_end_matches('/').to_string()
 }
 
+/// The server path is a context path (part of the user's base URL) when the
+/// spec's own paths already start with `/rest/`, as in the Confluence spec
+/// (`servers: http://{baseurl}/confluence`, paths `/rest/api/...`).
+/// Otherwise it is the REST prefix (`/rest`) that the CLI adds itself.
+pub fn context_path(spec: &Value) -> String {
+    let paths = spec.get("paths").and_then(Value::as_object);
+    let all_rest =
+        paths.is_some_and(|p| !p.is_empty() && p.keys().all(|k| k.starts_with("/rest/")));
+    if all_rest {
+        base_path(spec)
+    } else {
+        String::new()
+    }
+}
+
 /// Regex matching a path template. `{x}` matches one segment; a trailing
 /// `{path}` or a JAX-RS style `{x:.*}` matches the rest of the path.
 pub fn template_regex(template: &str) -> (Regex, usize) {
@@ -293,11 +319,11 @@ fn response(spec: &Value, op: &Value) -> (u16, MockBody) {
     // OpenAPI 3: responses.<code>.content.<media type>
     if let Some(content) = resp.get("content").and_then(Value::as_object) {
         if let Some((_, media)) = content.iter().find(|(ct, _)| ct.contains("json")) {
-            return (status, MockBody::Json(media_example(spec, media)));
+            return (status, json_body(spec, media));
         }
         if let Some((ct, media)) = content.iter().next() {
             if ct == "*/*" {
-                return (status, MockBody::Json(media_example(spec, media)));
+                return (status, json_body(spec, media));
             }
             return (status, MockBody::Text(text_example(media)));
         }
@@ -315,6 +341,19 @@ fn response(spec: &Value, op: &Value) -> (u16, MockBody) {
         );
     }
     (status, MockBody::Empty)
+}
+
+/// The body for a JSON media type. A media type with no example and no
+/// schema documents nothing to serve, so the mock answers with no body.
+fn json_body(spec: &Value, media: &Value) -> MockBody {
+    let documented = ["example", "examples", "schema"]
+        .iter()
+        .any(|k| media.get(*k).is_some_and(|v| !v.is_null()));
+    if documented {
+        MockBody::Json(media_example(spec, media))
+    } else {
+        MockBody::Empty
+    }
 }
 
 /// Some specs store JSON examples as strings; decode those.
@@ -481,7 +520,7 @@ pub async fn check_commands_against_spec(spec_file: &str, invocations: &[&[&str]
     for args in invocations {
         let cli = Cli::try_parse_from(std::iter::once(&"atlassian").chain(args.iter()))
             .unwrap_or_else(|e| panic!("`{}` does not parse: {e}", args.join(" ")));
-        let path = cli.to_request().unwrap().path;
+        let path = format!("{}{}", mock.context_path, cli.to_request().unwrap().path);
         let Some(op) = mock.operation_for(&path) else {
             failures.push(format!(
                 "`{}`: GET {path} is not in {spec_file}",
@@ -498,7 +537,7 @@ pub async fn check_commands_against_spec(spec_file: &str, invocations: &[&[&str]
             ));
             continue;
         }
-        match run_cli(&mock.uri(), &creds, args).await {
+        match run_cli(&mock.base_url(), &creds, args).await {
             Ok(out) if out == op.expected_output() => {}
             Ok(out) => failures.push(format!(
                 "`{}`: output does not match the {} example: {out:?}",
