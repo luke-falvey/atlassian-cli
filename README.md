@@ -19,6 +19,27 @@ This first version only **reads**. The HTTP client has no method other than
 
 ## Install
 
+Download a binary from the
+[Releases page](https://github.com/luke-falvey/atlassian-cli/releases). There
+are builds for `linux-amd64`, `linux-arm64`, `macos-amd64` (Intel) and
+`macos-arm64` (Apple Silicon):
+
+```sh
+version=v0.1.0 platform=linux-amd64
+base=https://github.com/luke-falvey/atlassian-cli/releases/download/$version
+curl -fLO "$base/atlassian-$version-$platform.tar.gz"
+curl -fLO "$base/atlassian-$version-$platform.tar.gz.sha256"
+shasum -a 256 -c "atlassian-$version-$platform.tar.gz.sha256"
+tar xzf "atlassian-$version-$platform.tar.gz"
+sudo install "atlassian-$version-$platform/atlassian" /usr/local/bin/
+```
+
+The Linux binaries need glibc 2.35 or newer (e.g. Ubuntu 22.04+, Debian 12+).
+The macOS binaries are not notarized, so remove the quarantine flag first with
+`xattr -d com.apple.quarantine atlassian` if macOS blocks them.
+
+Or build from source:
+
 ```sh
 cargo install --path .
 ```
@@ -115,6 +136,26 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 ```
+
+### Releasing
+
+1. Bump `version` in `Cargo.toml` (and `Cargo.lock` with `cargo check`), and merge.
+2. Tag the merge commit and push the tag:
+
+   ```sh
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+The `Release` workflow (`.github/workflows/release.yml`):
+- checks the tag matches the `Cargo.toml` version
+- runs the checks and tests
+- builds all four binaries on native GitHub runners
+- publishes a GitHub Release with the `.tar.gz` archives and their `.sha256`
+  checksums
+
+Pull requests that change the workflow, `Cargo.toml` or `Cargo.lock` run the
+same builds without publishing, as does a manual run from the Actions tab.
 
 ### How the tests work
 
