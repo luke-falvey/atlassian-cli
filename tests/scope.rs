@@ -1,4 +1,4 @@
-//! Scope guardrails end to end: what a `[scope]` config lets through, what it
+//! Scope guardrails end to end: what `[<product>.scope]` lets through, what it
 //! refuses (without sending the request), how lists are filtered, and what
 //! the request log records.
 
@@ -10,15 +10,19 @@ use support::{TestConfig, credentials_toml, run_cli};
 use wiremock::matchers::{any, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-const SCOPE: &str = r#"
-[scope]
-jira_projects = ["ABC"]
-confluence_spaces = ["DEV"]
-bitbucket_repos = ["PROJ/api", "WEB/*"]
-"#;
+/// A config where every product has a scope. Each `extra` is added to that
+/// product's scope table (e.g. `allow_raw = true`).
+fn scoped_with(jira: &str, confluence: &str, bitbucket: &str) -> TestConfig {
+    TestConfig::with(&format!(
+        "{}\n[jira.scope]\nprojects = [\"ABC\"]\n{jira}\n\
+         [confluence.scope]\nspaces = [\"DEV\"]\n{confluence}\n\
+         [bitbucket.scope]\nrepos = [\"PROJ/api\", \"WEB/*\"]\n{bitbucket}",
+        credentials_toml()
+    ))
+}
 
-fn scoped(extra: &str) -> TestConfig {
-    TestConfig::with(&format!("{}{SCOPE}{extra}", credentials_toml()))
+fn scoped() -> TestConfig {
+    scoped_with("", "", "")
 }
 
 fn ok(body: Value) -> ResponseTemplate {
@@ -70,7 +74,7 @@ async fn jira_issue_in_scope_is_fetched() {
         &server,
     )
     .await;
-    let out = run(&server, &scoped(""), &["jira", "issue", "get", "ABC-1"]).await;
+    let out = run(&server, &scoped(), &["jira", "issue", "get", "ABC-1"]).await;
     assert_eq!(json(out.unwrap()), json!({"key": "ABC-1"}));
 }
 
@@ -78,7 +82,7 @@ async fn jira_issue_in_scope_is_fetched() {
 async fn jira_issue_out_of_scope_is_never_requested() {
     let server = MockServer::start().await;
     no_requests(&server).await;
-    let config = scoped("");
+    let config = scoped();
     for args in [
         &["jira", "issue", "get", "XYZ-1"][..],
         &["jira", "issue", "comments", "xyz-9"],
@@ -110,7 +114,7 @@ async fn jira_issue_list_is_limited_to_allowed_projects() {
         .await;
     let out = run(
         &server,
-        &scoped(""),
+        &scoped(),
         &["jira", "issue", "list", "--assignee", "me"],
     )
     .await;
@@ -128,7 +132,7 @@ async fn jira_issue_list_refuses_other_projects() {
     no_requests(&server).await;
     let out = run(
         &server,
-        &scoped(""),
+        &scoped(),
         &["jira", "issue", "list", "--project", "XYZ"],
     )
     .await;
@@ -145,7 +149,7 @@ async fn jira_project_list_is_filtered() {
         &server,
     )
     .await;
-    let out = run(&server, &scoped(""), &["jira", "project", "list"]).await;
+    let out = run(&server, &scoped(), &["jira", "project", "list"]).await;
     assert_eq!(json(out.unwrap()), json!([{"key": "ABC"}]));
 }
 
@@ -153,7 +157,7 @@ async fn jira_project_list_is_filtered() {
 async fn instance_wide_commands_are_refused() {
     let server = MockServer::start().await;
     no_requests(&server).await;
-    let config = scoped("");
+    let config = scoped();
     for args in [
         &["jira", "user", "search", "a"][..],
         &["jira", "group", "members", "jira-users"],
@@ -173,7 +177,7 @@ async fn metadata_commands_are_allowed() {
     let server = MockServer::start().await;
     get("/rest/api/2/myself", json!({"name": "me"}), 1, &server).await;
     get("/rest/api/2/priority", json!([{"id": "1"}]), 1, &server).await;
-    let config = scoped("");
+    let config = scoped();
     run(&server, &config, &["jira", "myself"]).await.unwrap();
     run(&server, &config, &["jira", "priority", "list"])
         .await
@@ -185,8 +189,8 @@ async fn raw_is_refused_unless_allowed() {
     let server = MockServer::start().await;
     get("/rest/api/2/configuration", json!({}), 1, &server).await;
     let args = ["jira", "raw", "/rest/api/2/configuration"];
-    assert_blocked(run(&server, &scoped(""), &args).await, "`raw`");
-    run(&server, &scoped("allow_raw = true\n"), &args)
+    assert_blocked(run(&server, &scoped(), &args).await, "`raw`");
+    run(&server, &scoped_with("allow_raw = true\n", "", ""), &args)
         .await
         .unwrap();
 }
@@ -212,7 +216,7 @@ async fn agile_board_is_checked_through_its_projects() {
     .await;
     get("/rest/agile/1.0/board/1", json!({"id": 1}), 1, &server).await;
     get("/rest/agile/1.0/board/2", json!({"id": 2}), 0, &server).await;
-    let config = scoped("");
+    let config = scoped();
     run(&server, &config, &["agile", "board", "get", "1"])
         .await
         .unwrap();
@@ -247,7 +251,7 @@ async fn agile_sprint_is_checked_through_its_board() {
         &server,
     )
     .await;
-    let out = run(&server, &scoped(""), &["agile", "sprint", "issues", "5"]).await;
+    let out = run(&server, &scoped(), &["agile", "sprint", "issues", "5"]).await;
     assert_blocked(out, "XYZ");
 }
 
@@ -268,7 +272,7 @@ async fn agile_epic_by_id_is_looked_up() {
         &server,
     )
     .await;
-    let out = run(&server, &scoped(""), &["agile", "epic", "issues", "77"]).await;
+    let out = run(&server, &scoped(), &["agile", "epic", "issues", "77"]).await;
     assert_eq!(json(out.unwrap()), json!({"issues": [{"key": "ABC-4"}]}));
 }
 
@@ -276,7 +280,7 @@ async fn agile_epic_by_id_is_looked_up() {
 async fn agile_board_list_needs_an_allowed_project() {
     let server = MockServer::start().await;
     get("/rest/agile/1.0/board", json!({"values": []}), 1, &server).await;
-    let config = scoped("");
+    let config = scoped();
     assert_blocked(
         run(&server, &config, &["agile", "board", "list"]).await,
         "--project",
@@ -330,7 +334,7 @@ async fn confluence_content_is_checked_through_its_space() {
         &server,
     )
     .await;
-    let config = scoped("");
+    let config = scoped();
     let out = run(
         &server,
         &config,
@@ -358,7 +362,7 @@ async fn confluence_space_list_asks_only_for_allowed_spaces() {
         .expect(1)
         .mount(&server)
         .await;
-    let out = run(&server, &scoped(""), &["confluence", "space", "list"]).await;
+    let out = run(&server, &scoped(), &["confluence", "space", "list"]).await;
     assert_eq!(json(out.unwrap()), json!({"results": [{"key": "DEV"}]}));
 }
 
@@ -366,7 +370,7 @@ async fn confluence_space_list_asks_only_for_allowed_spaces() {
 async fn confluence_content_list_needs_an_allowed_space() {
     let server = MockServer::start().await;
     no_requests(&server).await;
-    let config = scoped("");
+    let config = scoped();
     assert_blocked(
         run(&server, &config, &["confluence", "content", "list"]).await,
         "--space",
@@ -408,7 +412,7 @@ async fn bitbucket_repos_match_exact_names_and_wildcards() {
         &server,
     )
     .await;
-    let config = scoped("");
+    let config = scoped();
     run(
         &server,
         &config,
@@ -448,12 +452,7 @@ async fn bitbucket_repo_list_is_filtered() {
         &server,
     )
     .await;
-    let out = run(
-        &server,
-        &scoped(""),
-        &["bitbucket", "repo", "list", "--all"],
-    )
-    .await;
+    let out = run(&server, &scoped(), &["bitbucket", "repo", "list", "--all"]).await;
     assert_eq!(
         json(out.unwrap()),
         json!([
@@ -479,9 +478,38 @@ async fn all_stops_at_max_results() {
         .expect(1)
         .mount(&server)
         .await;
-    let config = scoped("max_results = 2\n");
+    let config = scoped_with("", "", "max_results = 2\n");
     let out = run(&server, &config, &["bitbucket", "repo", "list", "--all"]).await;
     assert_eq!(json(out.unwrap()).as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn products_without_a_scope_are_unrestricted() {
+    let server = MockServer::start().await;
+    get(
+        "/rest/api/latest/projects/HR/repos/payroll",
+        json!({"slug": "payroll"}),
+        1,
+        &server,
+    )
+    .await;
+    get("/rest/api/2/issue/XYZ-1", json!({}), 0, &server).await;
+    // Only Jira is scoped.
+    let config = TestConfig::with(&format!(
+        "{}\n[jira.scope]\nprojects = [\"ABC\"]\n",
+        credentials_toml()
+    ));
+    run(
+        &server,
+        &config,
+        &["bitbucket", "repo", "get", "HR", "payroll"],
+    )
+    .await
+    .unwrap();
+    assert_blocked(
+        run(&server, &config, &["jira", "issue", "get", "XYZ-1"]).await,
+        "XYZ",
+    );
 }
 
 #[tokio::test]
@@ -509,7 +537,7 @@ async fn requests_and_refusals_are_logged() {
     let server = MockServer::start().await;
     content_lookup("1", "DEV", &server).await;
     get("/rest/api/content/1", json!({"id": "1"}), 1, &server).await;
-    let config = scoped("");
+    let config = scoped();
     run(&server, &config, &["confluence", "content", "get", "1"])
         .await
         .unwrap();

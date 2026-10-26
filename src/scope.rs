@@ -7,7 +7,8 @@
 //! say which space it's in, so the page is fetched and its space checked.
 //! After the request, a [`PostFilter`] drops list items outside the scope.
 //!
-//! Without a `[scope]` section in the config nothing is restricted.
+//! Each product has its own scope (`[jira.scope]`, `[confluence.scope]`,
+//! `[bitbucket.scope]`); a product without one is not restricted.
 
 use anyhow::{Result, bail};
 use serde::Deserialize;
@@ -20,20 +21,19 @@ use crate::request::{ApiRequest, seg};
 /// is configured.
 pub const DEFAULT_MAX_RESULTS: usize = 1000;
 
-/// The `[scope]` config section.
+/// A product's `scope` table: `[jira.scope]`, `[confluence.scope]` or
+/// `[bitbucket.scope]`. Each takes its own list (`projects`, `spaces` or
+/// `repos`) plus the shared `max_results` and `allow_raw`.
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct ScopeConfig {
-    /// Jira project keys. Also limits `agile`.
-    #[serde(default)]
-    pub jira_projects: Vec<String>,
-    /// Confluence space keys.
-    #[serde(default)]
-    pub confluence_spaces: Vec<String>,
-    /// Bitbucket repositories as `PROJECT/repo`, or `PROJECT/*` for every
+pub struct ProductScope {
+    /// `[jira.scope]`: Jira project keys. Also limits `agile`.
+    pub projects: Option<Vec<String>>,
+    /// `[confluence.scope]`: Confluence space keys.
+    pub spaces: Option<Vec<String>>,
+    /// `[bitbucket.scope]`: `PROJECT/repo`, or `PROJECT/*` for every
     /// repository in a project.
-    #[serde(default)]
-    pub bitbucket_repos: Vec<String>,
+    pub repos: Option<Vec<String>>,
     /// Most items `--all` may fetch (default 1000).
     pub max_results: Option<usize>,
     /// Allow the `raw` command, which can reach any endpoint.
@@ -41,30 +41,47 @@ pub struct ScopeConfig {
     pub allow_raw: bool,
 }
 
-impl ScopeConfig {
-    /// Check the values are well formed.
-    pub fn validate(&self) -> std::result::Result<(), String> {
-        for repo in &self.bitbucket_repos {
+impl ProductScope {
+    /// Check the values are well formed, and that `[<section>.scope]` only
+    /// uses its own list key.
+    pub fn validate(&self, section: &str) -> std::result::Result<(), String> {
+        let own = match section {
+            "jira" => "projects",
+            "confluence" => "spaces",
+            "bitbucket" => "repos",
+            other => return Err(format!("unknown product `{other}`")),
+        };
+        for (key, set) in [
+            ("projects", self.projects.is_some()),
+            ("spaces", self.spaces.is_some()),
+            ("repos", self.repos.is_some()),
+        ] {
+            if set && key != own {
+                return Err(format!("[{section}.scope] takes `{own}`, not `{key}`"));
+            }
+        }
+        for repo in self.repos.iter().flatten() {
             match repo.split_once('/') {
                 Some((p, r)) if !p.is_empty() && !r.is_empty() && !r.contains('/') => {}
                 _ => {
                     return Err(format!(
-                        "bitbucket_repos entry `{repo}` must be `PROJECT/repo` or `PROJECT/*`"
+                        "repos entry `{repo}` must be `PROJECT/repo` or `PROJECT/*`"
                     ));
                 }
             }
         }
         if self.max_results == Some(0) {
-            return Err("max_results must be at least 1".into());
+            return Err(format!("[{section}.scope] max_results must be at least 1"));
         }
         Ok(())
     }
 }
 
-/// What a command may read. Restricted when built from a `[scope]` section.
+/// What a command may read: the scope of the product it runs against, or
+/// unrestricted when that product has no `scope` table.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Scope {
-    config: Option<ScopeConfig>,
+    config: Option<ProductScope>,
 }
 
 fn same(a: &str, b: &str) -> bool {
@@ -76,7 +93,7 @@ impl Scope {
         Self { config: None }
     }
 
-    pub fn restricted(config: ScopeConfig) -> Self {
+    pub fn restricted(config: ProductScope) -> Self {
         Self {
             config: Some(config),
         }
@@ -94,7 +111,24 @@ impl Scope {
     }
 
     fn jira_projects(&self) -> &[String] {
-        self.config.as_ref().map_or(&[], |c| &c.jira_projects)
+        self.config
+            .as_ref()
+            .and_then(|c| c.projects.as_deref())
+            .unwrap_or(&[])
+    }
+
+    fn confluence_spaces(&self) -> &[String] {
+        self.config
+            .as_ref()
+            .and_then(|c| c.spaces.as_deref())
+            .unwrap_or(&[])
+    }
+
+    fn bitbucket_repos(&self) -> &[String] {
+        self.config
+            .as_ref()
+            .and_then(|c| c.repos.as_deref())
+            .unwrap_or(&[])
     }
 
     pub fn allows_jira_project(&self, key: &str) -> bool {
@@ -102,16 +136,12 @@ impl Scope {
     }
 
     pub fn allows_confluence_space(&self, key: &str) -> bool {
-        match &self.config {
-            None => true,
-            Some(c) => c.confluence_spaces.iter().any(|s| same(s, key)),
-        }
+        !self.is_restricted() || self.confluence_spaces().iter().any(|s| same(s, key))
     }
 
     fn repo_patterns(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.config
+        self.bitbucket_repos()
             .iter()
-            .flat_map(|c| c.bitbucket_repos.iter())
             .filter_map(|r| r.split_once('/'))
     }
 
@@ -273,22 +303,15 @@ impl Scope {
         if self.allows_confluence_space(key) {
             Ok(())
         } else {
-            let allowed = self
-                .config
-                .as_ref()
-                .map(|c| Self::list(&c.confluence_spaces))
-                .unwrap_or_default();
             Err(denied(format!(
-                "Confluence space `{key}` is not allowed (allowed: {allowed})"
+                "Confluence space `{key}` is not allowed (allowed: {})",
+                Self::list(self.confluence_spaces())
             )))
         }
     }
 
     fn repos(&self) -> String {
-        self.config
-            .as_ref()
-            .map(|c| Self::list(&c.bitbucket_repos))
-            .unwrap_or_default()
+        Self::list(self.bitbucket_repos())
     }
 }
 
@@ -429,11 +452,7 @@ async fn authorize_guard(
                 return Ok(PostFilter::None);
             }
             if keys.is_empty() {
-                let allowed = scope
-                    .config
-                    .as_ref()
-                    .map(|c| c.confluence_spaces.clone())
-                    .unwrap_or_default();
+                let allowed = scope.confluence_spaces().to_vec();
                 if allowed.is_empty() {
                     return Err(denied("no Confluence spaces are allowed".into()));
                 }
@@ -591,10 +610,12 @@ mod tests {
     use serde_json::json;
 
     fn scope() -> Scope {
-        Scope::restricted(ScopeConfig {
-            jira_projects: vec!["ABC".into(), "ops".into()],
-            confluence_spaces: vec!["DEV".into()],
-            bitbucket_repos: vec!["PROJ/api".into(), "WEB/*".into()],
+        // One scope with every list, so each check can be tested here; in
+        // a config file each product's table holds only its own list.
+        Scope::restricted(ProductScope {
+            projects: Some(vec!["ABC".into(), "ops".into()]),
+            spaces: Some(vec!["DEV".into()]),
+            repos: Some(vec!["PROJ/api".into(), "WEB/*".into()]),
             max_results: None,
             allow_raw: false,
         })
@@ -642,16 +663,30 @@ mod tests {
     }
 
     #[test]
-    fn validate_repo_patterns() {
-        let mut c = ScopeConfig {
-            bitbucket_repos: vec!["PROJ/api".into(), "PROJ/*".into()],
+    fn validate_checks_keys_and_patterns() {
+        let ok = ProductScope {
+            repos: Some(vec!["PROJ/api".into(), "PROJ/*".into()]),
             ..Default::default()
         };
-        assert!(c.validate().is_ok());
+        assert!(ok.validate("bitbucket").is_ok());
         for bad in ["PROJ", "/api", "PROJ/", "A/b/c"] {
-            c.bitbucket_repos = vec![bad.into()];
-            assert!(c.validate().is_err(), "{bad}");
+            let s = ProductScope {
+                repos: Some(vec![bad.into()]),
+                ..Default::default()
+            };
+            assert!(s.validate("bitbucket").is_err(), "{bad}");
         }
+        let wrong_key = ProductScope {
+            spaces: Some(vec!["DEV".into()]),
+            ..Default::default()
+        };
+        let err = wrong_key.validate("jira").unwrap_err();
+        assert!(err.contains("takes `projects`, not `spaces`"), "{err}");
+        let zero = ProductScope {
+            max_results: Some(0),
+            ..Default::default()
+        };
+        assert!(zero.validate("jira").is_err());
     }
 
     #[test]

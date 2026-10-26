@@ -8,6 +8,9 @@
 //! [jira]          # also used by `agile` (Jira Software)
 //! base_url = "https://jira.example.com"
 //!
+//! [jira.scope]    # optional: limit what may be read (see `crate::scope`)
+//! projects = ["ABC"]
+//!
 //! [confluence]
 //! base_url = "https://wiki.example.com/confluence"
 //! username = "svc-confluence"   # optional per-product override
@@ -23,7 +26,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::scope::{Scope, ScopeConfig};
+use crate::scope::{ProductScope, Scope};
 use thiserror::Error;
 
 /// File name looked up in the user's home directory.
@@ -90,6 +93,9 @@ pub struct ProductConfig {
     pub username: Option<String>,
     pub password: Option<String>,
     pub ca_cert: Option<PathBuf>,
+    /// Limits on what this product may read, e.g. `[jira.scope]`.
+    /// Absent: no limits.
+    pub scope: Option<ProductScope>,
 }
 
 /// The whole config file.
@@ -104,8 +110,6 @@ pub struct Config {
     pub confluence: ProductConfig,
     #[serde(default)]
     pub bitbucket: ProductConfig,
-    /// Limits on what the CLI may read. Absent: no limits.
-    pub scope: Option<ScopeConfig>,
     #[serde(default)]
     pub log: LogConfig,
 }
@@ -161,11 +165,12 @@ impl fmt::Debug for Config {
         let redact = |p: &Option<String>| p.as_ref().map(|_| "<redacted>");
         let section = |s: &ProductConfig| {
             format!(
-                "{{ base_url: {:?}, username: {:?}, password: {:?}, ca_cert: {:?} }}",
+                "{{ base_url: {:?}, username: {:?}, password: {:?}, ca_cert: {:?}, scope: {:?} }}",
                 s.base_url,
                 s.username,
                 redact(&s.password),
-                s.ca_cert
+                s.ca_cert,
+                s.scope
             )
         };
         f.debug_struct("Config")
@@ -174,7 +179,6 @@ impl fmt::Debug for Config {
             .field("jira", &section(&self.jira))
             .field("confluence", &section(&self.confluence))
             .field("bitbucket", &section(&self.bitbucket))
-            .field("scope", &self.scope)
             .field("log", &self.log)
             .finish()
     }
@@ -232,11 +236,15 @@ impl Config {
             path: path.to_path_buf(),
             message: e.message().to_string(),
         })?;
-        if let Some(scope) = &config.scope {
-            scope.validate().map_err(|message| ConfigError::Parse {
-                path: path.to_path_buf(),
-                message: format!("[scope]: {message}"),
-            })?;
+        for section in [Section::Jira, Section::Confluence, Section::Bitbucket] {
+            if let Some(scope) = &config.section(section).scope {
+                scope
+                    .validate(section.name())
+                    .map_err(|message| ConfigError::Parse {
+                        path: path.to_path_buf(),
+                        message,
+                    })?;
+            }
         }
         Ok(config)
     }
@@ -293,7 +301,7 @@ impl Config {
             base_url,
             credentials: Credentials { username, password },
             ca_cert: ca_cert.map(Path::to_path_buf).or_else(|| s.ca_cert.clone()),
-            scope: match &self.scope {
+            scope: match &s.scope {
                 Some(scope) => Scope::restricted(scope.clone()),
                 None => Scope::unrestricted(),
             },
@@ -467,28 +475,44 @@ base_url = "https://bitbucket.example.com"
     }
 
     #[test]
-    fn scope_section_restricts_resolved_settings() {
+    fn each_product_has_its_own_scope() {
         let cfg = format!(
-            "{FULL}\n[scope]\njira_projects = [\"ABC\"]\nbitbucket_repos = [\"PROJ/*\"]\nmax_results = 50\n"
+            "{FULL}\n[jira.scope]\nprojects = [\"ABC\"]\nmax_results = 50\n\
+             \n[bitbucket.scope]\nrepos = [\"PROJ/*\"]\nallow_raw = true\n"
         );
-        let r = resolve(&cfg, Section::Jira).unwrap();
-        assert!(r.scope.is_restricted());
-        assert!(r.scope.allows_jira_project("ABC") && !r.scope.allows_jira_project("XYZ"));
-        assert!(
-            !r.scope.allows_confluence_space("DEV"),
-            "unlisted product gets nothing"
+        let jira = resolve(&cfg, Section::Jira).unwrap().scope;
+        assert!(jira.is_restricted());
+        assert!(jira.allows_jira_project("ABC") && !jira.allows_jira_project("XYZ"));
+        assert_eq!(jira.max_results(), Some(50));
+
+        let bitbucket = resolve(&cfg, Section::Bitbucket).unwrap().scope;
+        assert!(bitbucket.allows_bitbucket_repo("PROJ", "any"));
+        assert!(!bitbucket.allows_bitbucket_repo("HR", "x"));
+        assert_eq!(
+            bitbucket.max_results(),
+            Some(crate::scope::DEFAULT_MAX_RESULTS)
         );
-        assert_eq!(r.scope.max_results(), Some(50));
-        assert!(!resolve(FULL, Section::Jira).unwrap().scope.is_restricted());
+
+        // Confluence has no scope table, so it isn't restricted.
+        let confluence = resolve(&cfg, Section::Confluence).unwrap().scope;
+        assert!(!confluence.is_restricted());
+        assert!(confluence.allows_confluence_space("ANY"));
     }
 
     #[test]
     fn bad_scope_values_are_errors() {
-        let err = parse("[scope]\nbitbucket_repos = [\"PROJ\"]").unwrap_err();
+        let err = parse("[bitbucket.scope]\nrepos = [\"PROJ\"]").unwrap_err();
         assert!(err.to_string().contains("PROJECT/repo"), "{err}");
-        let err = parse("[scope]\njira_project = [\"ABC\"]").unwrap_err();
-        assert!(err.to_string().contains("jira_project"), "{err}");
-        assert!(parse("[scope]\nmax_results = 0").is_err());
+        let err = parse("[jira.scope]\nspaces = [\"DEV\"]").unwrap_err();
+        assert!(
+            err.to_string().contains("[jira.scope] takes `projects`"),
+            "{err}"
+        );
+        let err = parse("[jira.scope]\nproject = [\"ABC\"]").unwrap_err();
+        assert!(err.to_string().contains("project"), "{err}");
+        assert!(parse("[confluence.scope]\nmax_results = 0").is_err());
+        // The old top-level [scope] table is no longer accepted.
+        assert!(parse("[scope]\njira_projects = [\"ABC\"]").is_err());
     }
 
     #[test]

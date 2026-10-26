@@ -89,21 +89,32 @@ Flags override the file for one run:
 | `--base-url <URL>` | the section's `base_url` |
 | `--ca-cert <PATH>` | the section's `ca_cert` |
 
-### Limiting what the CLI can read (`[scope]`)
+### Limiting what the CLI can read (`scope`)
 
-Add a `[scope]` section to limit the CLI to the projects, spaces and
+Give a product a `scope` table to limit it to the projects, spaces or
 repositories a task needs. This matters most when an LLM agent drives the CLI.
 
 ```toml
-[scope]
-jira_projects = ["ABC", "OPS"]           # also limits `agile`
-confluence_spaces = ["DEV"]
-bitbucket_repos = ["PROJ/api", "WEB/*"]  # PROJECT/repo, or PROJECT/* for all its repos
-max_results = 1000                       # most items `--all` returns (default 1000)
-allow_raw = false                        # `raw` can reach any endpoint (default false)
+[jira.scope]                       # also limits `agile`
+projects = ["ABC", "OPS"]
+
+[confluence.scope]
+spaces = ["DEV"]
+
+[bitbucket.scope]
+repos = ["PROJ/api", "WEB/*"]      # PROJECT/repo, or PROJECT/* for all its repos
+max_results = 500                  # optional: most items `--all` returns (default 1000)
+allow_raw = true                   # optional: allow `raw` (default false)
 ```
 
-With a scope set:
+- **Own list per product:** each product's table takes its own list:
+  `projects`, `spaces` or `repos`.
+- **Optional settings:** `max_results` and `allow_raw` can be set in any
+  product's table and apply only to that product.
+- **Products without a table** aren't restricted, so give a `scope` table to
+  every product an agent will use.
+
+For a product with a scope:
 
 - **Direct reads are checked before anything is sent.** This covers issue
   keys, project keys, space keys and `PROJECT/repo` arguments.
@@ -121,11 +132,11 @@ With a scope set:
 - **Commands that read across the whole instance are refused.** That means
   user and group lookups, Jira filters and dashboards, and `raw` (unless
   `allow_raw = true`).
-- **A product with no list in `[scope]` is blocked entirely.** Numeric Jira
-  issue ids are refused too; use the key.
+- **An empty list blocks everything except metadata.** For example,
+  `projects = []` allows only instance metadata. Numeric Jira issue ids are
+  refused too; use the key.
 
-Refused commands fail with `blocked by scope: ...` and send nothing. Without a
-`[scope]` section, nothing is restricted.
+Refused commands fail with `blocked by scope: ...` and send nothing.
 
 This limits what the CLI will ask for. It doesn't replace server-side
 permissions: for agents, also use an account that can only see the allowed
