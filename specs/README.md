@@ -6,18 +6,25 @@ command whose URL isn't in the spec fails its test.
 
 | File                 | Product                     | Version | Source URL |
 |----------------------|-----------------------------|---------|------------|
-| `jira.json`          | Jira Data Center (platform) | _todo_  | _todo_     |
-| `jira-software.json` | Jira Software (Agile)       | _todo_  | _todo_     |
+| `jira.json`          | Jira Software Data Center (platform `/rest/api/2` + agile `/rest/agile/1.0`) | 10.0.0 | https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_10000_swagger.v3.json |
 | `confluence.json`    | Confluence Data Center      | _todo_  | _todo_     |
 | `bitbucket.json`     | Bitbucket Data Center       | _todo_  | _todo_     |
 | `bamboo.json`        | Bamboo Data Center          | _todo_  | _todo_     |
 
 ## Status
 
-**These files are not committed yet.** `dac-static.atlassian.com` was not
-reachable from the environment the CLI was built in. Until they are added,
-the five spec tests (`tests/{jira,agile,confluence,bitbucket,bamboo}.rs`)
-fail with a message pointing here. All other tests run without them.
+`jira.json` is vendored and used by both `tests/jira.rs` and `tests/agile.rs`.
+Atlassian publishes OpenAPI files only for Jira 10.0 and later; Jira 9.x
+(e.g. 9.12) is documented only as HTML at docs.atlassian.com, so 10.0.0 is the
+oldest official spec available. Its `/rest/api/2` endpoints used by the CLI
+are unchanged from 9.x.
+
+Known spec quirk: `GET /api/2/group/member` declares `groupname` as a *path*
+parameter although the path has no placeholder. Jira takes it as a query
+parameter, which is what the CLI sends.
+
+The Confluence, Bitbucket and Bamboo specs are not committed yet. Until they
+are, their spec tests fail with a message pointing here.
 
 ## Adding or refreshing a spec
 

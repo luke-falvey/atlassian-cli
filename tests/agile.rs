@@ -1,11 +1,11 @@
-//! Every `agile` command against a mock built from the official Jira Software DC spec.
+//! Every `agile` command against a mock built from the official Jira Software DC spec (which also covers the agile API).
 
 mod support;
 
 #[tokio::test]
 async fn agile_commands_match_spec() {
     support::check_commands_against_spec(
-        "jira-software.json",
+        "jira.json",
         &[
             &[
                 "agile",

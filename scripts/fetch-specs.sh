@@ -2,7 +2,7 @@
 # Download the official Atlassian Data Center OpenAPI specs into specs/.
 #
 # The URLs below are the best-known locations on dac-static.atlassian.com and
-# have not all been confirmed (the host was unreachable when this script was
+# have not all been confirmed: jira is confirmed; the others are guesses (the host was unreachable when this script was
 # written). If one fails, find the "Download OpenAPI spec" link on the
 # product's REST API page on developer.atlassian.com and pass it in:
 #
@@ -15,15 +15,15 @@ cd "$(dirname "$0")/.."
 mkdir -p specs
 
 declare -A URLS=(
-  [jira]="${JIRA_SPEC_URL:-https://dac-static.atlassian.com/server/jira/platform/swagger-v3.v3.json}"
-  [jira-software]="${JIRA_SOFTWARE_SPEC_URL:-https://dac-static.atlassian.com/server/jira-software/swagger.v3.json}"
+  # Jira Software DC spec: covers /rest/api/2 and /rest/agile/1.0 (used by both jira and agile tests).
+  [jira]="${JIRA_SPEC_URL:-https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_10000_swagger.v3.json}"
   [confluence]="${CONFLUENCE_SPEC_URL:-https://dac-static.atlassian.com/server/confluence/swagger.v3.json}"
   [bitbucket]="${BITBUCKET_SPEC_URL:-https://dac-static.atlassian.com/server/bitbucket/latest.swagger.v3.json}"
   [bamboo]="${BAMBOO_SPEC_URL:-https://dac-static.atlassian.com/server/bamboo/swagger.v3.json}"
 )
 
 products=("$@")
-[ ${#products[@]} -eq 0 ] && products=(jira jira-software confluence bitbucket bamboo)
+[ ${#products[@]} -eq 0 ] && products=(jira confluence bitbucket bamboo)
 
 failed=0
 for product in "${products[@]}"; do

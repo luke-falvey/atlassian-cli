@@ -328,7 +328,7 @@ fn decode_example(ex: &Value) -> Value {
 }
 
 fn media_example(spec: &Value, media: &Value) -> Value {
-    if let Some(ex) = media.get("example") {
+    if let Some(ex) = media.get("example").filter(|v| !v.is_null()) {
         return decode_example(ex);
     }
     if let Some(examples) = media.get("examples").and_then(Value::as_object)
@@ -368,7 +368,7 @@ pub fn synthesize(spec: &Value, schema: &Value, refs: &mut Vec<String>, depth: u
         refs.pop();
         return v;
     }
-    if let Some(ex) = schema.get("example") {
+    if let Some(ex) = schema.get("example").filter(|v| !v.is_null()) {
         return ex.clone();
     }
     if let Some(all) = schema.get("allOf").and_then(Value::as_array) {
@@ -489,6 +489,15 @@ pub async fn check_commands_against_spec(spec_file: &str, invocations: &[&[&str]
             ));
             continue;
         };
+        // A null body would let any command "match"; insist on real content.
+        if op.body == MockBody::Json(Value::Null) {
+            failures.push(format!(
+                "`{}`: {} has no example or schema to serve",
+                args.join(" "),
+                op.template
+            ));
+            continue;
+        }
         match run_cli(&mock.uri(), &creds, args).await {
             Ok(out) if out == op.expected_output() => {}
             Ok(out) => failures.push(format!(
